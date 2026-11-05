@@ -276,6 +276,44 @@
       }
       g.position.set(o.x, 0, o.z); return shade(g);
     },
+    cabin(o) { // كرفان مكتب الموقع، فوقه صحن ستلايت
+      const g = new THREE.Group();
+      g.add(bx(o.w, o.h - 0.3, o.d, 0xc9c2b2, 0, (o.h - 0.3) / 2 + 0.3, 0));
+      for (const x of [-o.w / 2 + 0.4, o.w / 2 - 0.4]) for (const z of [-o.d / 2 + 0.3, o.d / 2 - 0.3]) g.add(bx(0.25, 0.3, 0.25, 0x3a3a3a, x, 0.15, z));
+      for (let i = 0; i < 6; i++) g.add(bx(0.04, o.h - 0.4, 0.02, 0xa9a292, -o.w / 2 + 0.35 + i * (o.w - 0.7) / 5, o.h / 2 + 0.15, o.d / 2 + 0.01));
+      const win = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 0.6), new THREE.MeshBasicMaterial({ color: 0xffc070 })); win.position.set(0.9, 1.65, o.d / 2 + 0.02); g.add(win); g.userData.lit = [win];
+      g.add(bx(0.8, 1.9, 0.04, 0x6d6658, -0.9, 1.25, o.d / 2 + 0.02));
+      g.add(bx(1.2, 0.08, 1.0, 0x5c5548, -0.9, 0.2, o.d / 2 + 0.5)); // درجة
+      const ac = bx(0.7, 0.5, 0.4, 0x9a968c, 1.2, o.h + 0.1, -0.3); g.add(ac);
+      const dish = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 6, 0, Math.PI * 2, 0, Math.PI / 3), lam(0xd8d8d0, { side: THREE.DoubleSide }));
+      dish.rotation.x = -1.0; dish.position.set(-1.2, o.h + 0.45, 0); g.add(dish, bx(0.06, 0.5, 0.06, 0x555555, -1.2, o.h + 0.15, 0));
+      g.position.set(o.x, 0, o.z); return shade(g);
+    },
+    barrier(o) { // حاجز خرساني (جيرسي) مع خطوط تحذير
+      const g = new THREE.Group(), along = o.w > o.d, L = Math.max(o.w, o.d);
+      const shape = new THREE.Shape(); shape.moveTo(-0.3, 0); shape.lineTo(0.3, 0); shape.lineTo(0.12, 0.35); shape.lineTo(0.09, o.h); shape.lineTo(-0.09, o.h); shape.lineTo(-0.12, 0.35); shape.closePath();
+      const geo = new THREE.ExtrudeGeometry(shape, { depth: L, bevelEnabled: false }); geo.translate(0, 0, -L / 2);
+      const m = new THREE.Mesh(geo, lam(0x8f8b83)); if (along) m.rotation.y = Math.PI / 2; g.add(m);
+      for (let i = 0; i < 3; i++) { const st = bx(along ? 0.3 : 0.27, 0.14, along ? 0.27 : 0.3, i % 2 ? 0xd8c03a : 0x222222, 0, o.h * 0.62, 0); if (along) st.position.x = -L / 3 + i * L / 3; else st.position.z = -L / 3 + i * L / 3; g.add(st); }
+      g.position.set(o.x, 0, o.z); return shade(g);
+    },
+    tires(o) { // كفرات مكدسة
+      const g = new THREE.Group();
+      for (const [x, z, y] of [[-0.3, -0.3, 0], [0.32, 0.25, 0], [0, 0, 0.32], [0, 0, 0.64], [-0.35, 0.3, 0]]) {
+        const t = new THREE.Mesh(new THREE.TorusGeometry(0.33, 0.14, 8, 16), lam(0x1c1c1c)); t.rotation.x = Math.PI / 2; t.position.set(x, 0.14 + y, z); g.add(t);
+      }
+      g.position.set(o.x, 0, o.z); return shade(g);
+    },
+    pipeline(o) { // خط مياه روافد على الأرض مع محابس
+      const g = new THREE.Group(), along = o.w > o.d, L = Math.max(o.w, o.d);
+      const p = cy(0.26, 0.26, L, 0x3f6f8f, 14, 0, 0.32, 0); p.rotation.z = Math.PI / 2; if (!along) p.rotation.set(Math.PI / 2, 0, 0); g.add(p);
+      for (let u = -L / 2 + 2; u < L / 2; u += 4) {
+        const c = cy(0.3, 0.3, 0.12, 0x2f5670, 14, along ? u : 0, 0.32, along ? 0 : u); c.rotation.z = Math.PI / 2; g.add(c);
+        g.add(bx(0.18, 0.32, 0.5, 0x4a4a46, along ? u : 0, 0.08, along ? 0 : u));
+      }
+      for (const u of [-8, 7]) { g.add(cy(0.08, 0.08, 0.4, 0x2f5670, 8, along ? u : 0, 0.72, along ? 0 : u)); const w = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.04, 6, 14), lam(0xb03020)); w.rotation.x = Math.PI / 2; w.position.set(along ? u : 0, 0.92, along ? 0 : u); g.add(w); }
+      g.position.set(o.x, 0, o.z); return shade(g);
+    },
     fence(o) { // سور شبك بأسلاك شائكة
       const g = new THREE.Group(), along = o.w > o.d, Lh = Math.max(o.w, o.d), n = Math.round(Lh / 3);
       for (let i = 0; i <= n; i++) { const u = -Lh / 2 + i * Lh / n; g.add(bx(0.1, 2.4, 0.1, 0x3d4247, along ? u : 0, 1.2, along ? 0 : u)); }
@@ -285,6 +323,110 @@
       g.add(bx(along ? Lh : 0.4, 0.25, along ? 0.4 : Lh, 0x2b2620, 0, 0.12, 0));
       g.position.set(o.x, 0, o.z); return g;
     }
+  };
+
+  // ---------- لوحة الإنذار ----------
+  FX.panel = function (scene, p) {
+    const g = new THREE.Group();
+    g.add(bx(0.7, 0.9, 0.12, 0x4a4f55, 0, 1.4, 0));
+    const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 0.28), new THREE.MeshBasicMaterial({ color: 0x1f5a3a })); scr.position.set(0, 1.55, 0.065); g.add(scr);
+    const led = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), new THREE.MeshBasicMaterial({ color: 0x33ff66 })); led.position.set(0.22, 1.2, 0.08); g.add(led);
+    const hl = glow(0.9, 0x33ff66, 0.7); hl.position.copy(led.position); g.add(hl);
+    const lever = bx(0.08, 0.25, 0.08, 0xb03020, -0.2, 1.15, 0.1); g.add(lever);
+    g.add(bx(0.04, 1.0, 0.04, 0x222222, 0.3, 0.5, 0)); // سلك نازل
+    g.position.set(p.wall[0], 0, p.wall[1]); g.rotation.y = p.face || 0;
+    scene.add(shade(g));
+    return { g, scr, led, glow: hl, lever };
+  };
+  FX.updatePanel = function (P, alarmOn, powerOff, t) {
+    const red = alarmOn && Math.floor(t * 4) % 2 === 0;
+    const c = powerOff ? 0x111111 : alarmOn ? (red ? 0xff3322 : 0x441111) : 0x33ff66;
+    P.led.material.color.setHex(c); P.glow.material.color.setHex(c); P.glow.material.opacity = powerOff ? 0 : alarmOn ? (red ? 0.9 : 0.2) : 0.6;
+    P.scr.material.color.setHex(powerOff ? 0x0a0a0a : alarmOn ? 0x5a1f1f : 0x1f5a3a);
+    P.lever.rotation.x = alarmOn ? 0 : 0.8;
+  };
+
+  // ---------- تفاصيل صغيرة: شجيرات، حصى، آثار كفرات، لوحات تحذير، بركة تسريب، كيابل، دخان، ومحطة بعيدة ----------
+  function freeAt(L, x, z, pad) { for (const o of L.obstacles) if (Math.abs(x - o.x) < o.w / 2 + pad && Math.abs(z - o.z) < o.d / 2 + pad) return false; return true; }
+  let signTex2 = null;
+  function warnSign() {
+    return signTex2 || (signTex2 = canvasTex(256, 160, (x, w, h) => {
+      x.fillStyle = '#d9c23a'; x.fillRect(0, 0, w, h); x.fillStyle = '#1a1a1a'; x.fillRect(8, 8, w - 16, h - 16); x.fillStyle = '#d9c23a'; x.fillRect(14, 14, w - 28, h - 28);
+      x.fillStyle = '#1a1a1a'; x.textAlign = 'center'; x.direction = 'rtl'; x.font = 'bold 40px Cairo, sans-serif'; x.fillText('منطقة محظورة', w / 2, 72); x.font = 'bold 26px Cairo, sans-serif'; x.fillText('خطر · ممنوع الاقتراب', w / 2, 118);
+    }));
+  }
+  FX.details = function (scene, L) {
+    const r = rng(77), half = { w: L.size.w / 2 - 1, d: L.size.d / 2 - 1 };
+    // شجيرات صحراوية يابسة
+    const bushGeo = new THREE.IcosahedronGeometry(0.32, 0); const bush = new THREE.InstancedMesh(bushGeo, lam(0x5f5a3a), 60);
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3(); let n = 0;
+    for (let k = 0; k < 400 && n < 60; k++) {
+      const x = (r() * 2 - 1) * half.w, z = (r() * 2 - 1) * half.d; if (!freeAt(L, x, z, 0.6)) continue;
+      const s0 = 0.6 + r() * 0.9; q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), r() * 6); m4.compose(ps.set(x, 0.12 * s0, z), q, sc.set(s0 * 1.2, s0 * 0.6, s0)); bush.setMatrixAt(n++, m4);
+    }
+    bush.count = n; bush.castShadow = true; scene.add(bush);
+    // حصى
+    const peb = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(0.12, 0), lam(0x6d6152), 260); n = 0;
+    for (let k = 0; k < 900 && n < 260; k++) {
+      const x = (r() * 2 - 1) * (half.w + 6), z = (r() * 2 - 1) * (half.d + 6); if (!freeAt(L, x, z, 0.2)) continue;
+      const s0 = 0.4 + r() * 1.2; q.setFromEuler(new THREE.Euler(r() * 3, r() * 3, 0)); m4.compose(ps.set(x, 0.03, z), q, sc.set(s0, s0 * 0.6, s0)); peb.setMatrixAt(n++, m4);
+    }
+    peb.count = n; peb.receiveShadow = true; scene.add(peb);
+    // آثار كفرات من البوابة الجنوبية للبوابة
+    const trackTex = canvasTex(64, 256, (x, w, h) => { for (let y = 0; y < h; y += 8) { x.fillStyle = 'rgba(25,15,8,' + (0.28 + Math.random() * 0.12) + ')'; x.fillRect(4, y, 22, 5); x.fillRect(38, y + 3, 22, 5); } });
+    trackTex.wrapT = THREE.RepeatWrapping; trackTex.repeat.set(1, 8);
+    const tr = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 30), new THREE.MeshBasicMaterial({ map: trackTex, transparent: true, depthWrite: false }));
+    tr.rotation.x = -Math.PI / 2; tr.rotation.z = 0.05; tr.position.set(-0.6, 0.035, 6.5); tr.renderOrder = 1; scene.add(tr);
+    // لوحات "منطقة محظورة"
+    for (const [x, z, ry] of [[-4.2, 21.3, 0], [5.6, -9.4, 0], [19.3, -3, -Math.PI / 2]]) {
+      const g = new THREE.Group(); g.add(bx(0.08, 1.6, 0.08, 0x3d4247, -0.5, 0.8, 0), bx(0.08, 1.6, 0.08, 0x3d4247, 0.5, 0.8, 0));
+      const pl = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.8), new THREE.MeshLambertMaterial({ map: warnSign(), side: THREE.DoubleSide })); pl.position.y = 1.5; pl.rotation.y = Math.PI; g.add(pl);
+      g.position.set(x, 0, z); g.rotation.y = ry; scene.add(shade(g));
+    }
+    // بركة ماء تسرّب من خزان روافد (تلمع)
+    const tank = L.obstacles.find(o => o.kind === 'tank');
+    let puddle = null;
+    if (tank) {
+      puddle = new THREE.Mesh(new THREE.CircleGeometry(1.3, 20), new THREE.MeshLambertMaterial({ color: 0x223a52, emissive: 0x0a1a2a, transparent: true, opacity: 0.85 }));
+      puddle.rotation.x = -Math.PI / 2; puddle.scale.set(1.4, 0.8, 1); puddle.position.set(tank.x + 2.1, 0.03, tank.z + 1.6); scene.add(puddle);
+    }
+    // كيابل من المولد للأعمدة
+    const gen = L.obstacles.find(o => o.kind === 'gen');
+    if (gen) for (const [tx, tz] of [[-11.5, -3.2], [-17, 6], [-3.2, -9.0]]) {
+      const pts = [], N = 12; for (let i = 0; i <= N; i++) { const f = i / N; pts.push(new THREE.Vector3(gen.x + (tx - gen.x) * f + Math.sin(f * 9) * 0.3, 0.04, gen.z + (tz - gen.z) * f + Math.cos(f * 7) * 0.3)); }
+      const c = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.035, 4), lam(0x111111)); scene.add(c);
+    }
+    // تلال رمل صغيرة لازقة في الجدران والسور
+    const mound = new THREE.SphereGeometry(1, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+    for (const o of L.obstacles) {
+      if (o.kind !== 'wall' && o.kind !== 'ruin' && o.kind !== 'fence') continue;
+      const cnt = Math.max(1, Math.round(Math.max(o.w, o.d) / 6));
+      for (let i = 0; i < cnt; i++) {
+        if (r() < 0.4) continue;
+        const along = o.w > o.d, u = (r() - 0.5) * Math.max(o.w, o.d) * 0.9, side = r() < 0.5 ? -1 : 1;
+        const x = along ? o.x + u : o.x + side * (o.w / 2 + 0.05), z = along ? o.z + side * (o.d / 2 + 0.05) : o.z + u;
+        if (!freeAt({ obstacles: L.obstacles.filter(b => b !== o) }, x, z, 0.4)) continue;
+        const m = new THREE.Mesh(mound, lam(0x7a6650)); m.scale.set(along ? 1.4 : 0.45, 0.32, along ? 0.45 : 1.4); m.position.set(x, 0, z); m.receiveShadow = true; scene.add(m);
+      }
+    }
+    // دخان المولد
+    const smoke = [];
+    if (gen) for (let i = 0; i < 8; i++) { const sp = glow(1, 0x8a8a8a, 0); sp.material = sp.material.clone(); sp.material.blending = THREE.NormalBlending; sp.userData.ph = i / 8; sp.userData.base = [gen.x + 0.7, 1.9, gen.z - 0.3]; scene.add(sp); smoke.push(sp); }
+    // محطة بعيدة في الأفق (المحطة الخامسة؟): أنوار صغيرة ورا الجبال
+    const far = new THREE.Group();
+    for (let i = 0; i < 14; i++) { const l = glow(0.8 + r() * 1.4, i % 5 ? 0xffc37a : 0xff4030, 0.9); l.position.set((r() - 0.5) * 9, 1 + r() * 3.5, (r() - 0.5) * 2); far.add(l); }
+    const halo = glow(22, 0xff9a50, 0.18); halo.position.y = 2; far.add(halo);
+    far.position.set(-26, 2, -84); scene.add(far);
+    return { bush, puddle, smoke, far };
+  };
+  FX.updateDetails = function (D, t, powerOff) {
+    if (D.puddle) D.puddle.material.emissive.setRGB(0.04 + Math.sin(t * 1.3) * 0.015, 0.1 + Math.sin(t * 1.3) * 0.03, 0.16 + Math.sin(t * 1.3) * 0.04);
+    for (const sp of D.smoke) {
+      const f = ((t * 0.25 + sp.userData.ph) % 1), b = sp.userData.base;
+      sp.position.set(b[0] + f * 1.6, b[1] + f * 3, b[2] - f * 0.4); sp.scale.setScalar(0.5 + f * 2.2);
+      sp.material.opacity = powerOff ? 0 : 0.28 * (1 - f) * Math.min(1, f * 6);
+    }
+    D.far.children.forEach((c, i) => { if (i < 14 && i % 5 === 0) c.material.opacity = Math.floor(t * 1.2 + i) % 2 ? 0.9 : 0.15; });
   };
 
   root.FX = FX;

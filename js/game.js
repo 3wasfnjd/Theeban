@@ -60,6 +60,7 @@
     radio: () => tone(1800, 0.05, 'square', 0.04),
     won: () => { [523, 659, 784].forEach((f, i) => tone(f, 0.35, 'sine', 0.1, 0, i * 0.15)); },
     step: () => tone(90 + Math.random() * 30, 0.05, 'triangle', 0.03),
+    power: () => { tone(600, 0.7, 'sawtooth', 0.08, 40); tone(90, 0.5, 'square', 0.05, 30, 0.1); },
     subdue: () => { tone(200, 0.08, 'square', 0.08); tone(1400, 0.25, 'sine', 0.05, 300, 0.05); },
     spotted: () => { tone(1200, 0.08, 'square', 0.1); tone(1200, 0.08, 'square', 0.1, 0, 0.12); tone(900, 0.3, 'sawtooth', 0.08, 0, 0.24); }
   };
@@ -73,7 +74,10 @@
   const STATE_TXT = ['هادئ', 'مشتبه', 'إنذار'];
   const ICON_HAND = '<path d="M9 11V5a1.5 1.5 0 0 1 3 0v5m0-1a1.5 1.5 0 0 1 3 0v2m0-1a1.5 1.5 0 0 1 3 0v4a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-2.7L4 15a1.5 1.5 0 0 1 2.5-1.6L9 16"/>';
   const ICON_SUB = '<path d="m14 4 6 6M17 7l-9 9-3 1 1-3 9-9M4 20l3-3"/>';
-  let radioT = 0, toastT = 0, lastLevel = 0;
+  const ICON_BELL = '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20h4M3 3l18 18"/>';
+  const ICON_BOLT = '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>';
+  const ACT = { take: ['تفاعل', ICON_HAND], subdue: ['تخدير', ICON_SUB], panel: ['أطفئ', ICON_BELL], gen: ['اقطع', ICON_BOLT], none: ['تفاعل', ICON_HAND] };
+  let radioT = 0, toastT = 0, lastLevel = 0, alarmHint = 0;
 
   function showRadio(who, text) { $('radioWho').textContent = who + ':'; $('radioTxt').textContent = text; $('radio').classList.add('on'); radioT = 4 + text.length * 0.05; SFX.radio(); }
   function toast(text, sec) { $('toast').textContent = text; $('toast').classList.add('on'); toastT = sec || 1.6; }
@@ -85,12 +89,12 @@
     $('flash').classList.toggle('on', a.level === 2 || S.status === 'caught');
     const st = S.player.stance;
     if ($('stance').dataset.s !== st) { $('stance').dataset.s = st; $('stIcon').innerHTML = ICONS[st]; $('stTxt').textContent = TH.STANCES[st].name; }
-    const can = TH.canInteract(S), sub = !can && TH.subdueTarget(S), busy = !!S.subdue;
-    const mode = can ? 'take' : sub || busy ? 'subdue' : 'none';
+    const busy = S.subdue || S.action, A = TH.action(S);
+    const mode = busy ? (S.subdue ? 'subdue' : S.action.kind) : A ? A.kind : 'none';
     const act = $('act');
-    if (act.dataset.m !== mode) { act.dataset.m = mode; $('actTxt').textContent = mode === 'subdue' ? 'تخدير' : 'تفاعل'; $('actIcon').innerHTML = mode === 'subdue' ? ICON_SUB : ICON_HAND; }
-    act.disabled = mode === 'none'; act.classList.toggle('act', mode !== 'none'); act.classList.toggle('sub', mode === 'subdue');
-    act.style.setProperty('--p', busy ? Math.min(1, S.subdue.t / S.subdue.need) : 0);
+    if (act.dataset.m !== mode) { act.dataset.m = mode; const M = ACT[mode] || ACT.take; $('actTxt').textContent = M[0]; $('actIcon').innerHTML = M[1]; }
+    act.disabled = mode === 'none'; act.classList.toggle('act', mode !== 'none'); act.classList.toggle('sub', mode !== 'none' && mode !== 'take');
+    act.style.setProperty('--p', busy ? Math.min(1, busy.t / busy.need) : 0);
     if (radioT > 0 && (radioT -= dt) <= 0) $('radio').classList.remove('on');
     if (toastT > 0 && (toastT -= dt) <= 0) $('toast').classList.remove('on');
     drawRadar();
@@ -132,6 +136,10 @@
       else if (e.t === 'body') { SFX.sus(); showRadio('برق', 'شافوا الطايح!'); }
       else if (e.t === 'woke') toast('صحى حارس', 1);
       else if (e.t === 'spotted') { SFX.spotted(); toast('الضوء كشفك!', 1.2); ctx.shake = 0.5; }
+      else if (e.t === 'alarm_on') { if (!alarmHint) { alarmHint = 1; showRadio('برق', 'إنذار! أطفيه من اللوحة أو اقطع المولد.'); } }
+      else if (e.t === 'alarm_off') { SFX.cp(); toast(e.why === 'timeout' ? 'هدأ الإنذار' : 'انطفى الإنذار', 1.3); }
+      else if (e.t === 'power_off') { SFX.power(); toast('انقطعت الكهربا', 1.3); ctx.shake = 0.25; }
+      else if (e.t === 'power_on') { tone(200, 0.4, 'sawtooth', 0.06, 600); toast('رجعت الكهربا', 1.2); }
     }
     S.events.length = 0;
     if (S.player.moving && S.player.stance === 'stand') { stepT -= dt; if (stepT <= 0) { stepT = S.player.running ? 0.28 : 0.5; SFX.step(); } }
@@ -159,14 +167,14 @@
 
   function press(el, fn) { el.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); audio(); fn(); }); }
   press($('stance'), () => { if (S && S.status === 'play' && introT <= 0) { const before = S.player.stance; if (TH.cycleStance(S) === before) toast('ما تقدر', 0.8); } });
-  press($('act'), () => { if (!S || introT > 0) return; if (!TH.interact(S)) TH.startSubdue(S); });
+  press($('act'), () => { if (!S || introT > 0) return; TH.doAction(S); });
 
   doc.addEventListener('keydown', e => {
     keys[e.code] = true;
     if (!S || S.status !== 'play') return;
     if (introT > 0) { if (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape') endIntro(); return; }
     if (e.code === 'KeyC' || e.code === 'Space') { TH.cycleStance(S); e.preventDefault(); }
-    if (e.code === 'KeyE' || e.code === 'Enter' || e.code === 'KeyF') { if (!TH.interact(S)) TH.startSubdue(S); }
+    if (e.code === 'KeyE' || e.code === 'Enter' || e.code === 'KeyF') TH.doAction(S);
   });
   doc.addEventListener('keyup', e => { keys[e.code] = false; });
   function keyInput() {
@@ -188,7 +196,7 @@
   function endIntro() { introT = 0; ctx.intro = 0; doc.body.classList.remove('intro'); doc.body.classList.remove('ui-off'); }
   function T_step(dt) {
     if (introT > 0) {
-      introT -= dt; ctx.intro = Math.max(0, introT / INTRO); S.time += dt;
+      introT -= dt; ctx.intro = Math.max(0, introT / INTRO); S.time += dt; TH.advanceLights(S, dt);
       if (introT <= 0) endIntro();
       W.render(ctx, S, dt); return;
     }

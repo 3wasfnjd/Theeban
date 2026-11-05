@@ -95,6 +95,25 @@ function serve() {
   const spotted = await page.evaluate(() => __theeban.TH.alertLevel(__theeban.S).level);
   spotted === 2 ? ok('الكشاف الضوئي ينذر الحراس') : fail('الكشاف الضوئي ما أنذر: ' + spotted);
   await page.screenshot({ path: path.join(OUT, 'shot-4e-alarm.png') });
+  // إطفاء الإنذار من اللوحة (نبعد الحراس عشان ما يمسكونه)
+  await page.evaluate(() => { const S = __theeban.S; S.guards.forEach(g => { g.state = 'out'; g.outT = 999; }); const p = S.L.panels[0]; S.player.x = p.x; S.player.z = p.z; S.L.searchlights.forEach(l => { l.ax = 0; l.az = 0; l.cx = 60; }); });
+  await page.waitForFunction(() => document.getElementById('act').dataset.m === 'panel', null, { timeout: 8000 }).catch(() => {});
+  const pm = await page.evaluate(() => document.getElementById('act').dataset.m);
+  pm === 'panel' ? ok('زر "أطفئ" يطلع عند لوحة الإنذار') : fail('زر الإنذار: ' + pm);
+  await page.screenshot({ path: path.join(OUT, 'shot-4f-panel.png') });
+  await page.tap('#act');
+  await page.waitForFunction(() => !__theeban.S.alarm.on, null, { timeout: 15000 }).catch(() => {});
+  (await page.evaluate(() => !__theeban.S.alarm.on)) ? ok('الإنذار انطفى من اللوحة') : fail('الإنذار ما انطفى');
+
+  // قطع الكهربا من المولد
+  await page.evaluate(() => { const S = __theeban.S, G = S.L.generator; S.player.x = G.x; S.player.z = G.z; });
+  await page.waitForFunction(() => document.getElementById('act').dataset.m === 'gen', null, { timeout: 8000 }).catch(() => {});
+  await page.tap('#act');
+  await page.waitForFunction(() => __theeban.S.power.off, null, { timeout: 15000 }).catch(() => {});
+  (await page.evaluate(() => __theeban.S.power.off)) ? ok('المولد: الكهربا انقطعت') : fail('الكهربا ما انقطعت');
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: path.join(OUT, 'shot-4g-poweroff.png') });
+
   await page.evaluate(() => { const S = __theeban.S; S.L.searchlights.forEach(l => { l.speed = 0; l.cx = 60; }); __theeban.TH.resetToCheckpoint(S); });
   await page.waitForTimeout(500);
 

@@ -229,6 +229,9 @@
     const sls = (L.searchlights || []).map(l => FX.searchlight(scene, l));
     const beacons = [[-2.1, 3.15, -10], [2.1, 3.15, -10], [1.5, 2.85, -14.9], [17.6, 6.85, 19.6]].map(([x, y, z]) => FX.beacon(scene, x, y, z));
     const dust = FX.dust(scene);
+    const details = FX.details(scene, L);
+    const panels = (L.panels || []).map(p => FX.panel(scene, p));
+    const lit = []; scene.traverse(o => { if (o.userData && o.userData.lit) lit.push(...o.userData.lit); });
     const flick = []; scene.traverse(o => { if (o.userData && o.userData.flick) flick.push(o.userData.flick); });
 
     // الهدف: جهاز التسجيل على صندوق صغير، وحلقة تنبض
@@ -249,7 +252,7 @@
     const guards = [], cones = [];
     const RAYS = 22;
 
-    const ctx = { renderer, scene, camera, moon, hemi, sky, lamps, sls, beacons, dust, flick, player, guards, cones, objG, ring, rec, cps, rings: [], RAYS, camPos: new THREE.Vector3(), lookAt: new THREE.Vector3(), t: 0, alarm: 0, shake: 0, intro: 0 };
+    const ctx = { renderer, scene, camera, moon, hemi, sky, lamps, sls, beacons, dust, flick, details, panels, lit, player, guards, cones, objG, ring, rec, cps, rings: [], RAYS, camPos: new THREE.Vector3(), lookAt: new THREE.Vector3(), t: 0, alarm: 0, shake: 0, intro: 0 };
     W.syncGuards(ctx, S);
     W.resize(ctx);
     W.snapCamera(ctx, S);
@@ -344,12 +347,18 @@
     ctx.scene.fog.color.setRGB(0.11 + al * 0.14, 0.10 - al * 0.03, 0.125 - al * 0.04);
     ctx.sky.sky.material.uniforms.uAlarm.value = al;
     ctx.beacons.forEach(b => FX.updateBeacon(b, al, t, dt));
-    ctx.sls.forEach((o, i) => FX.updateSearchlight(o, S, i));
-    for (const L of ctx.lamps) if (L.flicker) {
-      const f = Math.sin(t * 13 + L.seed) > 0.93 || Math.sin(t * 2.3 + L.seed) > 0.985 ? 0.15 : 1;
-      L.beam.material.uniforms.uStr.value = 0.55 * f; L.pool.material.opacity = 0.42 * f; L.glow.material.opacity = 0.9 * f;
+    const off = S.power && S.power.off;
+    ctx.sls.forEach((o, i) => { FX.updateSearchlight(o, S, i); o.beam.visible = o.spot.visible = o.ring.visible = o.glow.visible = !off; });
+    for (const L of ctx.lamps) {
+      const f = off ? 0 : L.flicker && (Math.sin(t * 13 + L.seed) > 0.93 || Math.sin(t * 2.3 + L.seed) > 0.985) ? 0.15 : 1;
+      L.beam.material.uniforms.uStr.value = 0.55 * f; L.pool.material.opacity = 0.42 * f; L.glow.material.opacity = 0.9 * f; L.head.visible = f > 0;
     }
-    for (const [lamp, gl] of ctx.flick) { const on = Math.random() > 0.08; lamp.visible = on; gl.material.opacity = on ? 0.6 + Math.random() * 0.3 : 0; }
+    for (const [lamp, gl] of ctx.flick) { const on = !off && Math.random() > 0.08; lamp.visible = on; gl.material.opacity = on ? 0.6 + Math.random() * 0.3 : 0; }
+    for (const w of ctx.lit) w.material.color.setHex(off ? 0x1a1a1a : 0xffc070);
+    ctx.panels.forEach(p => FX.updatePanel(p, S.alarm && S.alarm.on, off, t));
+    FX.updateDetails(ctx.details, t, off);
+    ctx.darkness = (ctx.darkness || 0) + ((off ? 1 : 0) - (ctx.darkness || 0)) * Math.min(1, dt * 2);
+    ctx.hemi.intensity = 0.9 - ctx.darkness * 0.25;
     FX.updateDust(ctx.dust, P.x, P.z, dt, t);
 
     // الكاميرا تتبع ذيبان (وتقرب شوي وهو منحني)، تهتز مع الإنذار، ولقطة افتتاحية فوق الموقع

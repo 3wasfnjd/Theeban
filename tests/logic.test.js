@@ -172,3 +172,47 @@ test('التخدير: الحارس الثاني إذا شاف زميله طاي�
   assert.strictEqual(S.guards[1].state, 'suspicious');
   assert.ok(S.events.some(e => e.t === 'body') || S.guards[0].noticed);
 });
+
+test('الإنذار: الضوء يشغّله، ولوحة الإنذار تطفيه', () => {
+  const lv = testLevel({ guards: [{ type: 'heavy', route: [[-12, -12]], dir: Math.PI }], panels: [{ x: 5, z: 5 }],
+    searchlights: [{ sx: 0, sz: -14, sh: 10, cx: 0, cz: 5, ax: 0, az: 0, r: 2.5, speed: 0 }] });
+  const S = T.newGame(lv); S.player.x = 0; S.player.z = 5;
+  for (let t = 0; t < 2 && !S.alarm.on; t += DT) T.update(S, {}, DT);
+  assert.ok(S.alarm.on, 'الإنذار اشتغل');
+  assert.strictEqual(T.alertLevel(S).level, 2);
+  S.player.x = 5; S.player.z = 5.5; S.lights[0].meter = 0;
+  S.guards[0].x = -13; S.guards[0].z = -13; S.guards[0].dir = Math.PI; // بعيد
+  const a = T.action(S);
+  assert.ok(a && a.kind === 'panel', 'زر إطفاء الإنذار يطلع عند اللوحة');
+  T.doAction(S); run(S, 1.2);
+  assert.ok(!S.alarm.on, 'الإنذار انطفى');
+});
+
+test('المولد: قطع الكهربا يطفي الكشافات والإنذار، وحارس يجي يصلحه', () => {
+  const lv = testLevel({ guards: [{ type: 'tech', route: [[-8, 0]], dir: Math.PI }], generator: { x: 6, z: 6 },
+    obstacles: [{ kind: 'gen', x: 6, z: 7.1, w: 1.9, d: 1.2, h: 1.3 }],
+    searchlights: [{ sx: 0, sz: -14, sh: 10, cx: 6, cz: 4, ax: 0, az: 0, r: 2.5, speed: 0 }] });
+  const S = T.newGame(lv); S.player.x = 6; S.player.z = 13; // بعيد عن الضوء
+  T.raiseAlarm(S, 0, 0);
+  S.player.z = 6;
+  run(S, 0.05);
+  const a = T.action(S);
+  assert.ok(a && a.kind === 'gen');
+  T.doAction(S); run(S, 1.4);
+  assert.ok(S.power.off, 'الكهربا مقطوعة');
+  assert.ok(!S.alarm.on, 'الإنذار طفى مع الكهربا');
+  S.player.x = 6; S.player.z = 4; // تحت الكشاف وهو طافي
+  run(S, 1);
+  assert.strictEqual(S.lights[0].meter, 0, 'الكشاف ما يشوف وهو طافي');
+  S.player.x = 13; S.player.z = 13;
+  for (let t = 0; t < 30 && S.power.off; t += DT) T.update(S, {}, DT);
+  assert.ok(!S.power.off, 'رجعت الكهربا (الحارس صلحها أو خلص الوقت)');
+});
+
+test('المهمة الأولى: اللوحات والمولد في أماكن يوصل لها ذيبان', () => {
+  const L = T.makeLevel(LEVEL1);
+  for (const p of L.panels) assert.ok(T.playerReachable(L, L.start, p), JSON.stringify(p));
+  assert.ok(T.playerReachable(L, L.start, L.generator));
+  assert.ok(T.playerReachable(L, L.checkpoints[1], L.objective));
+  assert.ok(T.findPath(L, 0, -6, 0, -12), 'البوابة مفتوحة للحراس');
+});

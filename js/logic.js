@@ -193,11 +193,13 @@
       player: { x: L.start.x, z: L.start.z, dir: L.start.dir || Math.PI, stance: 'stand', moving: 0, running: false, noiseT: 0 },
       checkpoint: { x: L.start.x, z: L.start.z, idx: -1 },
       guards: [], events: [], radioDone: {}, caughtT: 0, catches: 0, objectiveTaken: false,
-      lights: (L.searchlights || []).map(() => ({ meter: 0, lit: false }))
+      lights: newLights(L), alarm: { on: false, t: 0, x: 0, z: 0 }, power: { off: false, t: 0 }, action: null
     };
     S.guards = L.guards.map((g, i) => newGuard(g, i));
     return S;
   };
+
+  function newLights(L) { return (L.searchlights || []).map(() => ({ meter: 0, lit: false, ph: 0 })); }
 
   function newGuard(g, i) {
     const p = g.route[0];
@@ -213,7 +215,7 @@
     P.x = S.checkpoint.x; P.z = S.checkpoint.z; P.stance = 'stand'; P.moving = 0; P.running = false;
     S.guards = S.L.guards.map((g, i) => newGuard(g, i));
     S.status = 'play'; S.caughtT = 0; S.subdue = null;
-    S.lights = (S.L.searchlights || []).map(() => ({ meter: 0, lit: false }));
+    S.lights = newLights(S.L); S.alarm = { on: false, t: 0, x: 0, z: 0 }; S.power = { off: false, t: 0 }; S.action = null;
     S.events.push({ t: 'respawn' });
   };
 
@@ -265,6 +267,66 @@
     }
   }
 
+  // ---------- الإنذار والكهربا ----------
+  // الإنذار يشتغل إذا كشفك الضوء أو حارس. يخلي كل الحراس يفتشون ويسرّع الكشافات.
+  // تطفيه من لوحة الإنذار، أو تقطع الكهربا من المولد (يطفي الكشافات والأنوار والإنذار، ويجي حارس يصلحه).
+  function raiseAlarm(S, x, z) {
+    S.alarm.x = x; S.alarm.z = z;
+    if (S.alarm.on) return;
+    S.alarm.on = true; S.alarm.t = 0;
+    S.events.push({ t: 'alarm_on' });
+    for (const g of S.guards) if (g.state === 'calm') { g.state = 'suspicious'; g.meter = Math.max(g.meter, 0.5); g.target = [x, z]; g.path = null; g.searchT = 0; }
+  }
+  T.raiseAlarm = raiseAlarm;
+  function alarmOff(S, why) {
+    if (!S.alarm.on) return;
+    S.alarm.on = false; S.alarm.t = 0;
+    for (const g of S.guards) if (g.state === 'alert' && !g.seen) { g.state = 'suspicious'; g.meter = 0.45; g.searchT = 2; }
+    S.events.push({ t: 'alarm_off', why });
+  }
+  function updateAlarm(S, dt) {
+    if (S.alarm.on) { S.alarm.t += dt; if (S.alarm.t > 90) alarmOff(S, 'timeout'); }
+    if (S.power.off) {
+      S.power.t -= dt;
+      if (S.power.t <= 0) { S.power.off = false; S.events.push({ t: 'power_on' }); }
+    }
+  }
+  T.rangeMod = function (S) { return (S.alarm && S.alarm.on ? 1.15 : 1) * (S.power && S.power.off ? 0.75 : 1); };
+
+  // أقرب شيء يقدر يسويه ذيبان الحين (زر واحد يتغير حسب المكان)
+  T.action = function (S) {
+    const P = S.player;
+    if (S.status !== 'play' || S.subdue || S.action) return null;
+    if (T.canInteract(S)) return { kind: 'take' };
+    const near = (o, r) => o && len(P.x - o.x, P.z - o.z) < r;
+    if (S.alarm.on && (S.L.panels || []).some(p => near(p, 1.6))) return { kind: 'panel', need: 1.0 };
+    if (!S.power.off && near(S.L.generator, 1.8)) return { kind: 'gen', need: 1.2 };
+    if (T.subdueTarget(S)) return { kind: 'subdue' };
+    return null;
+  };
+  T.doAction = function (S) {
+    const a = T.action(S); if (!a) return false;
+    if (a.kind === 'take') return T.interact(S);
+    if (a.kind === 'subdue') return T.startSubdue(S);
+    S.action = { kind: a.kind, t: 0, need: a.need };
+    S.events.push({ t: 'action_start', kind: a.kind });
+    return true;
+  };
+  function updateAction(S, dt) {
+    const A = S.action; A.t += dt;
+    if (A.t < A.need) return;
+    S.action = null;
+    if (A.kind === 'panel') alarmOff(S, 'panel');
+    if (A.kind === 'gen') {
+      S.power.off = true; S.power.t = 25;
+      S.events.push({ t: 'power_off' });
+      alarmOff(S, 'power');
+      const G = S.L.generator; // أقرب حارس يجي يصلح المولد
+      const g = S.guards.filter(o => o.state !== 'out' && o.state !== 'alert').sort((a, b) => len(a.x - G.x, a.z - G.z) - len(b.x - G.x, b.z - G.z))[0];
+      if (g) { g.state = 'suspicious'; g.meter = Math.max(g.meter, 0.5); g.target = [G.x, G.z]; g.path = null; g.searchT = 0; }
+    }
+  }
+
   T.canInteract = function (S) {
     const o = S.L.objective, P = S.player;
     return S.status === 'play' && !S.objectiveTaken && len(P.x - o.x, P.z - o.z) < 1.9;
@@ -279,7 +341,7 @@
   T.canSee = function (S, g) {
     const P = S.player, st = T.STANCES[P.stance];
     const dx = P.x - g.x, dz = P.z - g.z, d = len(dx, dz);
-    const range = g.cfg.range * st.range * (g.state === 'alert' ? 1.25 : 1);
+    const range = g.cfg.range * st.range * (g.state === 'alert' ? 1.25 : 1) * T.rangeMod(S);
     if (d > range) return false;
     // قريب جداً يحس فيه حتى لو على طرف عينه — بس مو من وراه (عشان التخدير)
     const off = Math.abs(angDiff(g.dir, Math.atan2(dx, dz)));
@@ -317,27 +379,33 @@
       return;
     }
     if (S.status !== 'play') return;
-    if (S.subdue) updateSubdue(S, dt); else updatePlayer(S, input || {}, dt);
+    if (S.subdue) updateSubdue(S, dt); else if (S.action) updateAction(S, dt); else updatePlayer(S, input || {}, dt);
     for (const g of S.guards) updateGuard(S, g, dt);
-    if (S.status === 'play') updateLights(S, dt);
+    if (S.status === 'play') { updateLights(S, dt); updateAlarm(S, dt); }
     checkZones(S);
   };
 
   // ---------- الكشافات الضوئية ----------
   // بقعة ضوء تمسح الأرض من مصدر عالي. إذا وقف ذيبان فيها مكشوف (مو ورا شيء يحجب الضوء) يمتلي العداد،
   // وإذا امتلى ينذر أقرب حارسين ويرسلهم لمكانه.
-  T.lightPos = function (S, l) {
-    const t = S.time * l.speed + (l.phase || 0);
+  T.lightPos = function (S, l, i) {
+    if (i == null) i = (S.L.searchlights || []).indexOf(l);
+    const st = S.lights && S.lights[i], t = (st ? st.ph : S.time * l.speed) + (l.phase || 0);
     return [l.cx + Math.sin(t) * l.ax, l.cz + Math.sin(t * 0.73 + 1.1) * l.az];
   };
-  T.inLight = function (S, l) {
-    const P = S.player, [lx, lz] = T.lightPos(S, l);
+  T.advanceLights = function (S, dt) {
+    (S.L.searchlights || []).forEach((l, i) => { if (S.lights[i]) S.lights[i].ph += dt * l.speed * (S.alarm && S.alarm.on ? 1.7 : 1); });
+  };
+  T.inLight = function (S, l, i) {
+    if (S.power && S.power.off) return false;
+    const P = S.player, [lx, lz] = T.lightPos(S, l, i);
     if (len(P.x - lx, P.z - lz) > l.r) return false;
     return !blocked(S.L.obstacles, l.sx, l.sz, l.sh, P.x, P.z, T.STANCES[P.stance].h);
   };
   function updateLights(S, dt) {
+    T.advanceLights(S, dt);
     (S.L.searchlights || []).forEach((l, i) => {
-      const st = S.lights[i], lit = T.inLight(S, l);
+      const st = S.lights[i], lit = T.inLight(S, l, i);
       st.lit = lit;
       if (lit) st.meter = Math.min(1, st.meter + dt * 1.7 * T.STANCES[S.player.stance].vis);
       else st.meter = Math.max(0, st.meter - dt * 0.7);
@@ -350,6 +418,7 @@
           g.state = 'alert'; g.meter = 1; g.target = [P.x, P.z]; g.lastSeen = [P.x, P.z]; g.path = null; g.searchT = 0;
           if (was !== 'alert') S.events.push({ t: 'alert', g: g.id, why: 'light' });
         });
+        raiseAlarm(S, P.x, P.z);
       }
     });
   }
@@ -443,6 +512,7 @@
     if (g.meter >= 1 && g.state !== 'alert') {
       g.state = 'alert'; g.target = g.lastSeen || [P.x, P.z]; g.path = null; g.searchT = 0;
       S.events.push({ t: 'alert', g: g.id });
+      raiseAlarm(S, P.x, P.z);
       for (const o of S.guards) if (o !== g && o.state === 'calm' && len(o.x - g.x, o.z - g.z) < T.ALERT_SHARE) {
         o.meter = Math.max(o.meter, 0.55); o.state = 'suspicious'; o.target = [P.x, P.z]; o.path = null; o.searchT = 0;
         S.events.push({ t: 'suspicious', g: o.id, why: 'radio' });
@@ -472,10 +542,16 @@
       if (g.seen) { turn(g, Math.atan2(P.x - g.x, P.z - g.z), dt); return; } // يوقف ويتأمل
       const arrived = moveAlong(S, g, g.cfg.speed * 0.9, dt);
       if (arrived) for (const o of S.guards) if (o.state === 'out' && o.noticed && len(o.x - g.x, o.z - g.z) < 1.8) { wake(S, o); g.meter = Math.max(g.meter, 0.7); }
+      const G = S.L.generator;
+      if (arrived && G && S.power.off && len(G.x - g.x, G.z - g.z) < 2) { S.power.off = false; S.power.t = 0; S.events.push({ t: 'power_on', by: g.id }); }
       if (arrived) {
         g.searchT += dt; g.dir += Math.sin(S.time * 1.6) * dt * 1.6;
         g.meter = Math.max(0, g.meter - 0.12 * dt);
-        if (g.searchT > 3.5 && g.meter < 0.25) { g.state = 'calm'; g.meter = 0; g.target = null; g.path = null; S.events.push({ t: 'calm', g: g.id }); }
+        if (S.alarm.on && g.searchT > 3) { // وقت الإنذار يفتشون حول آخر مكان انشاف فيه
+          const a = (g.id * 2.4 + S.time * 0.7), r = 2 + (g.id * 1.7 + S.time) % 5;
+          g.target = [clamp(S.alarm.x + Math.sin(a) * r, -S.L.size.w / 2 + 1, S.L.size.w / 2 - 1), clamp(S.alarm.z + Math.cos(a) * r, -S.L.size.d / 2 + 1, S.L.size.d / 2 - 1)];
+          g.path = null; g.searchT = 0; g.meter = Math.max(g.meter, 0.4);
+        } else if (g.searchT > 3.5 && g.meter < 0.25) { g.state = 'calm'; g.meter = 0; g.target = null; g.path = null; S.events.push({ t: 'calm', g: g.id }); }
       }
       return;
     }
@@ -526,6 +602,7 @@
     let lv = 0, meter = 0;
     for (const g of S.guards) { if (g.state === 'out') continue; lv = Math.max(lv, g.state === 'alert' ? 2 : g.state === 'suspicious' ? 1 : 0); meter = Math.max(meter, g.meter); }
     for (const l of S.lights || []) meter = Math.max(meter, l.meter);
+    if (S.alarm && S.alarm.on) lv = 2;
     return { level: lv, meter };
   };
 
