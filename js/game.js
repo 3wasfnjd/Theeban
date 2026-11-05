@@ -258,5 +258,5 @@
   newRun(); W.render(ctx, S, 0.016);
 
   // للاختبارات الآلية فقط
-  root.__theeban = { get S() { return S; }, TH, start, step: T_step, input, skipIntro: () => introT > 0 && endIntro() };
+  root.__theeban = { get ctx() { return ctx; }, get S() { return S; }, TH, start, step: T_step, input, skipIntro: () => introT > 0 && endIntro() };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

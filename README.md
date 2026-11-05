@@ -42,7 +42,7 @@
 
 | الملف | الشخصية |
 |---|---|
-| `assets/characters/theeban.glb` | ذيبان |
+| `assets/characters/theeban.glb` | ذيبان ✓ مركّب (10 حركات) |
 | `assets/characters/scout.glb` | الكشاف |
 | `assets/characters/heavy.glb` | الحارس الثقيل |
 | `assets/characters/tech.glb` | الفني |
@@ -64,6 +64,7 @@
 | `js/fx.js` | الأجواء: السماء، الغبار، الأضواء والكشافات، أضواء الإنذار، أغراض الموقع |
 | `js/game.js` | الحلقة، التحكم، الواجهة، الأصوات |
 | `lib/three.min.js` | Three.js r149 (رخصة MIT في `lib/three-LICENSE.txt`) |
+| `lib/GLTFLoader.js` | محمّل GLB من Three.js r149 (MIT) |
 | `assets/brand/` | شعار عبودين قيمز المعتمد (يظهر مرة وحدة عند البداية) |
 | `assets/fonts/` | خط Cairo (رخصة OFL في `assets/fonts/OFL-Cairo.txt`) |
 | `tests/` | اختبارات المنطق، وفحص في المتصفح بمقاس آيفون |

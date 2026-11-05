@@ -177,7 +177,7 @@
 
   // ---------- بناء العالم ----------
   W.build = function (canvas, S) {
-    const L = S.L;
+    const L = S.L, ctxRef = {};
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(root.devicePixelRatio || 1, 2));
     renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -249,10 +249,11 @@
     });
 
     const player = makePlayer(); scene.add(player);
+    W.loadHero(player, ctxRef);
     const guards = [], cones = [];
     const RAYS = 22;
 
-    const ctx = { renderer, scene, camera, moon, hemi, sky, lamps, sls, beacons, dust, flick, details, panels, lit, player, guards, cones, objG, ring, rec, cps, rings: [], RAYS, camPos: new THREE.Vector3(), lookAt: new THREE.Vector3(), t: 0, alarm: 0, shake: 0, intro: 0 };
+    const ctx = ctxRef; Object.assign(ctx, { renderer, scene, camera, moon, hemi, sky, lamps, sls, beacons, dust, flick, details, panels, lit, player, guards, cones, objG, ring, rec, cps, rings: [], RAYS, camPos: new THREE.Vector3(), lookAt: new THREE.Vector3(), t: 0, alarm: 0, shake: 0, intro: 0 });
     W.syncGuards(ctx, S);
     W.resize(ctx);
     W.snapCamera(ctx, S);
@@ -293,15 +294,18 @@
     const pm = ctx.player, pose = pm.userData.pose;
     pm.position.set(P.x, 0, P.z);
     pm.rotation.y += TH.angDiff(pm.rotation.y, P.dir) * Math.min(1, dt * 14);
-    const bob = P.moving ? Math.abs(Math.sin(t * (P.running ? 13 : 8))) * (P.running ? 0.09 : 0.05) : 0;
-    const tgt = P.stance === 'crawl' ? { sy: 1, rx: Math.PI / 2 * 0.92, y: 0.3 } : P.stance === 'crouch' ? { sy: 0.62, rx: 0.28, y: 0 } : { sy: 1, rx: P.running ? 0.18 : 0, y: 0 };
-    const k = Math.min(1, dt * 12);
-    pose.scale.y += (tgt.sy - pose.scale.y) * k;
-    pose.rotation.x += (tgt.rx - pose.rotation.x) * k;
-    pose.position.y += (tgt.y + bob - pose.position.y) * k;
-    pose.position.z = P.stance === 'crawl' ? -0.6 : 0;
-    pm.userData.tail.rotation.x = Math.sin(t * (P.running ? 18 : 6)) * (P.moving ? 0.35 : 0.08);
-    pm.visible = S.status !== 'caught' || Math.floor(t * 10) % 2 === 0;
+    if (ctx.hero) { W.animateHero(ctx, S, dt, t); }
+    else {
+      const bob = P.moving ? Math.abs(Math.sin(t * (P.running ? 13 : 8))) * (P.running ? 0.09 : 0.05) : 0;
+      const tgt = P.stance === 'crawl' ? { sy: 1, rx: Math.PI / 2 * 0.92, y: 0.3 } : P.stance === 'crouch' ? { sy: 0.62, rx: 0.28, y: 0 } : { sy: 1, rx: P.running ? 0.18 : 0, y: 0 };
+      const k = Math.min(1, dt * 12);
+      pose.scale.y += (tgt.sy - pose.scale.y) * k;
+      pose.rotation.x += (tgt.rx - pose.rotation.x) * k;
+      pose.position.y += (tgt.y + bob - pose.position.y) * k;
+      pose.position.z = P.stance === 'crawl' ? -0.6 : 0;
+      pm.userData.tail.rotation.x = Math.sin(t * (P.running ? 18 : 6)) * (P.moving ? 0.35 : 0.08);
+      pm.visible = S.status !== 'caught' || Math.floor(t * 10) % 2 === 0;
+    }
 
     // الحراس
     W.syncGuards(ctx, S);
@@ -384,6 +388,59 @@
     ctx.moon.position.set(P.x - 8, 20, P.z + 6); ctx.moon.target.position.set(P.x, 0, P.z); ctx.moon.target.updateMatrixWorld();
 
     ctx.renderer.render(ctx.scene, ctx.camera);
+  };
+
+  // ---------- موديل ذيبان (GLB) ----------
+  // إذا الملف موجود يحل محل الجسم المؤقت. الحركات تتبدل حسب الوضعية والسرعة، بتداخل ناعم.
+  const NOMINAL = { walk: 2.6, run: 5.0, crouch_walk: 1.7, crawl: 0.95 };
+  W.loadHero = function (player, ctx) {
+    if (!THREE.GLTFLoader) return;
+    new THREE.GLTFLoader().load('assets/characters/theeban.glb?v=' + (root.TH_VERSION || '1'), gltf => {
+      const model = gltf.scene, bones = {};
+      model.traverse(o => {
+        if (o.isMesh) { o.castShadow = true; o.receiveShadow = false; o.frustumCulled = false;
+          const m = o.material; if (m) { m.metalness = 0; m.roughness = 1; if (m.map) { m.map.encoding = THREE.LinearEncoding; m.map.needsUpdate = true; } } }
+        if (o.isBone) bones[o.name] = o;
+      });
+      const pose = player.userData.pose;
+      pose.clear(); pose.scale.set(1, 1, 1); pose.rotation.set(0, 0, 0); pose.position.set(0, 0, 0);
+      pose.add(model);
+      const mixer = new THREE.AnimationMixer(model), actions = {};
+      for (const clip of gltf.animations) {
+        const a = mixer.clipAction(clip); actions[clip.name] = a;
+        if (['subdue', 'interact', 'caught'].includes(clip.name)) { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; }
+      }
+      const scarf = ['Scarf_1', 'Scarf_2', 'Scarf_3'].map(n => bones[n]).filter(Boolean);
+      ctx.hero = { model, mixer, actions, cur: null, scarf };
+      W.playHero(ctx.hero, 'idle', 0);
+      root.dispatchEvent && root.dispatchEvent(new Event('theeban-hero'));
+    }, undefined, err => { console.warn('theeban.glb', err && err.message); });
+  };
+  W.playHero = function (H, name, fade) {
+    if (H.cur === name || !H.actions[name]) return;
+    const next = H.actions[name], prev = H.cur && H.actions[H.cur];
+    next.reset(); next.enabled = true; next.setEffectiveWeight(1); next.play();
+    if (prev) prev.crossFadeTo(next, fade == null ? 0.2 : fade, false);
+    H.cur = name;
+  };
+  W.animateHero = function (ctx, S, dt, t) {
+    const H = ctx.hero, P = S.player;
+    let clip;
+    if (S.status === 'caught') clip = 'caught';
+    else if (S.subdue) clip = 'subdue';
+    else if (S.action) clip = 'interact';
+    else if (P.stance === 'crawl') clip = P.moving ? 'crawl' : 'crawl_idle';
+    else if (P.stance === 'crouch') clip = P.moving ? 'crouch_walk' : 'crouch_idle';
+    else clip = P.running ? 'run' : P.moving ? 'walk' : 'idle';
+    W.playHero(H, clip, clip === 'caught' ? 0.1 : 0.2);
+    const a = H.actions[clip];
+    if (a && NOMINAL[clip]) a.timeScale = Math.max(0.5, Math.min(1.6, P.moving / NOMINAL[clip]));
+    else if (a) a.timeScale = 1;
+    H.mixer.update(dt);
+    // الوشاح يرفرف مع الريح والحركة (فوق حركة الملف)
+    const sp = P.running ? 1 : P.moving ? 0.55 : 0.25;
+    H.scarf.forEach((b, i) => { b.rotation.x += Math.sin(t * (5 + sp * 9) - i * 0.9) * 0.18 * sp * (i + 1) * 0.6; b.rotation.z += Math.sin(t * 2.3 + i) * 0.08 * sp; });
+    ctx.player.visible = true;
   };
 
   W.noiseRing = function (ctx, x, z, radius) {
