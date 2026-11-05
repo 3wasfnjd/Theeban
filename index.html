@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ذيبان">
+<meta name="theme-color" content="#0b0f17">
+<link rel="apple-touch-icon" href="assets/brand/icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<title>ذيبان · THEEBAN</title>
+<style>
+@font-face{font-family:"Cairo";src:url("assets/fonts/cairo-arabic-700-normal.woff2") format("woff2");font-weight:700;font-display:swap;unicode-range:U+0600-06FF,U+0750-077F,U+08A0-08FF,U+FB50-FDFF,U+FE70-FEFF}
+@font-face{font-family:"Cairo";src:url("assets/fonts/cairo-latin-700-normal.woff2") format("woff2");font-weight:700;font-display:swap}
+:root{
+  --ink:#0b0f17; --glass:rgba(12,17,26,.55); --glass-hi:rgba(12,17,26,.78); --rim:rgba(190,215,230,.35);
+  --teal:#3fd0c4; --calm:#4fd27a; --sus:#f2c23a; --alert:#ff4d3d; --txt:#e9eef2;
+  --font:"Cairo","Noto Sans Arabic","Segoe UI",Tahoma,sans-serif;
+  --sl:env(safe-area-inset-left,0px); --sr:env(safe-area-inset-right,0px); --st:env(safe-area-inset-top,0px); --sb:env(safe-area-inset-bottom,0px);
+  color-scheme:dark;
+}
+html,body{height:100%;margin:0;overflow:hidden;position:fixed;inset:0;background:var(--ink);color:var(--txt);font-family:var(--font);
+  -webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:none;overscroll-behavior:none}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block}
+#vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(120% 95% at 50% 50%,rgba(0,0,0,0) 55%,rgba(0,0,0,.45) 100%)}
+#flash{position:fixed;inset:0;pointer-events:none;opacity:0;transition:opacity .25s;box-shadow:inset 0 0 120px 30px var(--alert)}
+#flash.on{opacity:1}
+
+/* أعلى الشاشة */
+#top{position:fixed;top:calc(8px + var(--st));right:calc(12px + var(--sr));left:calc(150px + var(--sl));display:flex;gap:10px;align-items:flex-start;pointer-events:none}
+#obj{background:var(--glass);border:1px solid var(--rim);border-radius:12px;padding:5px 12px;font-size:13px;max-width:46vw;line-height:1.5}
+#obj b{color:var(--teal)}
+#state{display:flex;flex-direction:column;align-items:center;gap:4px;margin-inline-start:auto;margin-inline-end:auto}
+#pill{padding:3px 14px;border-radius:99px;font-size:13px;background:var(--glass-hi);border:1.5px solid var(--calm);color:var(--calm);transition:all .2s}
+#pill.s1{border-color:var(--sus);color:var(--sus)} #pill.s2{border-color:var(--alert);color:#fff;background:rgba(160,30,20,.8)}
+#meter{width:150px;height:6px;border-radius:4px;background:rgba(255,255,255,.12);overflow:hidden}
+#meter i{display:block;height:100%;width:0;background:var(--sus);transition:width .1s}
+#radar{position:fixed;top:calc(8px + var(--st));left:calc(10px + var(--sl));width:124px;height:124px;border-radius:50%;background:rgba(8,20,22,.6);border:1.5px solid rgba(63,208,196,.45);pointer-events:none}
+#radarLbl{position:fixed;top:calc(134px + var(--st));left:calc(10px + var(--sl));width:124px;text-align:center;font-size:10px;color:rgba(63,208,196,.8);pointer-events:none}
+
+/* التحكم */
+#stickZone{position:fixed;left:0;bottom:0;width:48%;height:70%}
+#stickBase{position:fixed;width:120px;height:120px;margin:-60px 0 0 -60px;border-radius:50%;border:2px solid rgba(255,255,255,.28);background:rgba(255,255,255,.06);pointer-events:none;opacity:.55;transition:opacity .2s;
+  left:calc(100px + var(--sl));top:calc(100% - 100px - var(--sb))}
+#stickBase.on{opacity:1}
+#stickKnob{position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;border-radius:50%;background:rgba(233,238,242,.85);box-shadow:0 2px 10px rgba(0,0,0,.4)}
+#pads{position:fixed;right:calc(18px + var(--sr));bottom:calc(18px + var(--sb));display:flex;gap:14px;align-items:flex-end}
+.pad{width:78px;height:78px;border-radius:50%;border:2px solid var(--rim);background:var(--glass);color:#fff;font:700 13px var(--font);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:0}
+.pad svg{width:30px;height:30px}
+.pad.act{border-color:var(--teal);color:var(--teal);box-shadow:0 0 18px rgba(63,208,196,.45)}
+.pad:disabled{opacity:.35}
+#stance{width:88px;height:88px}
+
+/* اللاسلكي */
+#radio{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + var(--sb));max-width:min(560px,50vw);background:rgba(8,14,20,.82);border:1px solid rgba(63,208,196,.4);border-radius:12px;padding:6px 14px 8px;font-size:14px;line-height:1.6;opacity:0;transition:opacity .3s;pointer-events:none}
+#radio.on{opacity:1}
+#radio b{color:var(--teal);margin-inline-end:6px}
+#toast{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);font-size:22px;padding:8px 22px;border-radius:12px;background:rgba(8,14,20,.8);opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
+#toast.on{opacity:1}
+
+/* الشاشات */
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:20px;z-index:20}
+.screen[hidden]{display:none}
+#title{background:radial-gradient(90% 90% at 50% 40%,rgba(26,36,51,.82) 0%,rgba(6,8,13,.94) 100%)}
+#title .logo{position:absolute;left:50%;top:50%;width:min(300px,46vw);height:auto;transform:translate(-50%,-50%);opacity:0;animation:logo 2.6s ease forwards;pointer-events:none}
+#title .game{opacity:0;animation:fadein .8s ease 2.4s forwards;display:flex;flex-direction:column;align-items:center;gap:10px}
+@keyframes logo{0%{opacity:0}25%{opacity:1}75%{opacity:1}100%{opacity:0;visibility:hidden}}
+@keyframes fadein{to{opacity:1}}
+.name{font-size:56px;line-height:1;letter-spacing:2px}
+.name small{display:block;font-size:13px;letter-spacing:8px;color:rgba(233,238,242,.55);margin-top:8px}
+.sub{font-size:15px;color:rgba(233,238,242,.7)}
+.btn{font:700 18px var(--font);color:#06080d;background:var(--teal);border:0;border-radius:99px;padding:10px 40px;margin-top:8px}
+.btn.ghost{background:transparent;color:var(--txt);border:1.5px solid var(--rim)}
+.hint{font-size:12px;color:rgba(233,238,242,.5);max-width:520px;line-height:1.8}
+#won{background:rgba(4,7,12,.96)}
+#won .story{max-width:620px;font-size:17px;line-height:2}
+#won .story p{margin:4px 0;opacity:0;animation:fadein .9s ease forwards}
+#won .story p.q{color:var(--alert);font-size:19px}
+#won h2{margin:0;color:var(--teal);font-size:20px}
+#rotate{background:#06080d;z-index:40;display:none}
+@media (orientation:portrait) and (max-width:900px){#rotate{display:flex}}
+#rotate svg{width:70px;height:70px;animation:rot 2s ease-in-out infinite}
+@keyframes rot{0%,30%{transform:rotate(0)}60%,100%{transform:rotate(-90deg)}}
+#fps{position:fixed;bottom:2px;left:50%;transform:translateX(-50%);font:10px monospace;color:rgba(255,255,255,.3);pointer-events:none}
+body.ui-off #top,body.ui-off #radar,body.ui-off #radarLbl,body.ui-off #pads,body.ui-off #stickBase{display:none}
+</style>
+</head>
+<body class="ui-off">
+<canvas id="c"></canvas>
+<div id="vig"></div>
+<div id="flash"></div>
+
+<div id="top">
+  <div id="obj"><b>الهدف:</b> <span id="objTxt"></span></div>
+  <div id="state"><div id="pill">هادئ</div><div id="meter"><i></i></div></div>
+</div>
+<canvas id="radar" width="248" height="248"></canvas>
+<div id="radarLbl">كاشف الأثر</div>
+
+<div id="stickZone"></div>
+<div id="stickBase"><div id="stickKnob"></div></div>
+<div id="pads">
+  <button class="pad" id="act" disabled aria-label="تفاعل">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11V5a1.5 1.5 0 0 1 3 0v5m0-1a1.5 1.5 0 0 1 3 0v2m0-1a1.5 1.5 0 0 1 3 0v4a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-2.7L4 15a1.5 1.5 0 0 1 2.5-1.6L9 16"/></svg>
+    <span>تفاعل</span>
+  </button>
+  <button class="pad" id="stance" aria-label="الوضعية">
+    <svg id="stIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></svg>
+    <span id="stTxt">واقف</span>
+  </button>
+</div>
+
+<div id="radio"><b id="radioWho"></b><span id="radioTxt"></span></div>
+<div id="toast"></div>
+
+<section class="screen" id="title">
+  <img class="logo" src="assets/brand/aboden-splash.png" alt="عبودين قيمز · ABODEN GAMES">
+  <div class="game">
+    <div class="name">ذيبان<small>THEEBAN</small></div>
+    <div class="sub">المهمة الأولى: صدى الرمال · نموذج أولي</div>
+    <button class="btn" id="startBtn">ابدأ</button>
+    <div class="hint">العصا يسار الشاشة: حركة خفيفة = مشي هادي، وللآخر = ركض (الركض يسمعونه).<br>زر الوضعية: واقف ← منحني ← زاحف. الصخور تغطيك واقف، والصناديق تغطيك منحني.</div>
+  </div>
+</section>
+
+<section class="screen" id="won" hidden>
+  <h2>تم استعادة التسجيل</h2>
+  <div class="story" id="story"></div>
+  <div class="hint" id="stats"></div>
+  <button class="btn ghost" id="againBtn">العب مرة ثانية</button>
+</section>
+
+<section class="screen" id="rotate">
+  <svg viewBox="0 0 24 24" fill="none" stroke="#e9eef2" stroke-width="1.6"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>
+  <div class="sub">لف الجوال بالعرض</div>
+</section>
+<div id="fps"></div>
+
+<script src="lib/three.min.js"></script>
+<script src="js/logic.js"></script>
+<script src="js/level1.js"></script>
+<script src="js/world.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
