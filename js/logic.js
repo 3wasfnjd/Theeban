@@ -71,6 +71,7 @@
   T.makeLevel = function (data) {
     const L = Object.assign({}, data);
     L.obstacles = data.obstacles.map(normObstacle);
+    L.ladders = (data.ladders || []).map(l => Object.assign({}, l, { obs: L.obstacles.find(o => Math.abs(o.x - l.plat.x) < 0.01 && Math.abs(o.z - l.plat.z) < 0.01) || null }));
     L.grid = buildGrid(L, 0.5);
     return L;
   };
@@ -190,8 +191,9 @@
   T.newGame = function (L) {
     const S = {
       L, time: 0, status: 'play', // play | caught | won
-      player: { x: L.start.x, z: L.start.z, dir: L.start.dir || Math.PI, stance: 'stand', moving: 0, running: false, noiseT: 0 },
-      checkpoint: { x: L.start.x, z: L.start.z, idx: -1 },
+      player: { x: L.start.x, z: L.start.z, y: 0, dir: L.start.dir || Math.PI, stance: 'stand', moving: 0, running: false, noiseT: 0, mode: 'ground', gas: L.gasStart || 0 },
+      picked: {}, shots: [], clouds: [],
+      checkpoint: { x: L.start.x, z: L.start.z, idx: -1, gas: L.gasStart || 0, picked: {} },
       guards: [], events: [], radioDone: {}, caughtT: 0, catches: 0, objectiveTaken: false,
       lights: newLights(L), alarm: { on: false, t: 0, x: 0, z: 0 }, power: { off: false, t: 0 }, action: null
     };
@@ -212,7 +214,8 @@
 
   T.resetToCheckpoint = function (S) {
     const P = S.player;
-    P.x = S.checkpoint.x; P.z = S.checkpoint.z; P.stance = 'stand'; P.moving = 0; P.running = false;
+    P.x = S.checkpoint.x; P.z = S.checkpoint.z; P.y = 0; P.stance = 'stand'; P.moving = 0; P.running = false;
+    P.mode = 'ground'; P.climb = null; P.hide = null; P.gas = S.checkpoint.gas; S.picked = Object.assign({}, S.checkpoint.picked); S.shots = []; S.clouds = [];
     S.guards = S.L.guards.map((g, i) => newGuard(g, i));
     S.status = 'play'; S.caughtT = 0; S.subdue = null;
     S.lights = newLights(S.L); S.alarm = { on: false, t: 0, x: 0, z: 0 }; S.power = { off: false, t: 0 }; S.action = null;
@@ -238,7 +241,7 @@
   // يقرب من الحارس من وراه (والحارس ما شافه ومو في إنذار) ← يخدّره. الثقيل ياخذ وقت أطول.
   T.subdueTarget = function (S) {
     const P = S.player;
-    if (S.status !== 'play' || S.subdue || P.stance === 'crawl') return null;
+    if (S.status !== 'play' || S.subdue || S.action || P.stance === 'crawl' || P.mode !== 'ground') return null;
     let best = null, bd = 99;
     for (const g of S.guards) {
       if (g.state === 'alert' || g.state === 'out' || g.seen) continue;
@@ -297,10 +300,22 @@
   T.action = function (S) {
     const P = S.player;
     if (S.status !== 'play' || S.subdue || S.action) return null;
-    if (T.canInteract(S)) return { kind: 'take' };
     const near = (o, r) => o && len(P.x - o.x, P.z - o.z) < r;
+    if (P.mode === 'climb') return null;
+    if (P.mode === 'hidden') return P.hide.phase === 'in' ? { kind: 'exit' } : null;
+    if (P.mode === 'top') {
+      const l = P.ladder, li = l.light;
+      if (li != null && S.lights[li] && !S.lights[li].dead && near(l.ctrl || l.top, 1.4)) return { kind: 'light', need: 1.2 };
+      if (near(l.top, 0.9)) return { kind: 'down' };
+      return null;
+    }
+    if (T.canInteract(S)) return { kind: 'take' };
     if (S.alarm.on && (S.L.panels || []).some(p => near(p, 1.6))) return { kind: 'panel', need: 1.0 };
     if (!S.power.off && near(S.L.generator, 1.8)) return { kind: 'gen', need: 1.2 };
+    const lad = (S.L.ladders || []).find(l => near(l, 1.0));
+    if (lad && P.stance !== 'crawl') return { kind: 'climb', ladder: lad };
+    const hs = (S.L.hideSpots || []).find(h => near(h, 1.2));
+    if (hs) return { kind: 'hide', spot: hs };
     if (T.subdueTarget(S)) return { kind: 'subdue' };
     return null;
   };
@@ -308,6 +323,11 @@
     const a = T.action(S); if (!a) return false;
     if (a.kind === 'take') return T.interact(S);
     if (a.kind === 'subdue') return T.startSubdue(S);
+    const P = S.player;
+    if (a.kind === 'climb') { const l = a.ladder; P.mode = 'climb'; P.ladder = l; P.x = l.x; P.z = l.z; P.dir = l.face; P.stance = 'stand'; P.moving = 0; P.climb = { phase: 'mount', t: 0 }; S.events.push({ t: 'climb' }); return true; }
+    if (a.kind === 'down') { P.mode = 'climb'; P.x = P.ladder.x; P.z = P.ladder.z; P.dir = P.ladder.face; P.stance = 'stand'; P.moving = 0; P.y = P.ladder.h - T.LADDER_TOP; P.climb = { phase: 'down', t: 0 }; return true; }
+    if (a.kind === 'hide') { const h = a.spot; P.mode = 'hidden'; P.hide = { spot: h, phase: 'enter', t: 0 }; P.x = h.x; P.z = h.z; P.dir = h.face; P.moving = 0; P.stance = 'stand'; S.events.push({ t: 'hide' }); return true; }
+    if (a.kind === 'exit') { P.hide.phase = 'exit'; P.hide.t = 0; return true; }
     S.action = { kind: a.kind, t: 0, need: a.need };
     S.events.push({ t: 'action_start', kind: a.kind });
     return true;
@@ -317,6 +337,7 @@
     if (A.t < A.need) return;
     S.action = null;
     if (A.kind === 'panel') alarmOff(S, 'panel');
+    if (A.kind === 'light') { const li = S.player.ladder.light; S.lights[li].dead = true; S.lights[li].meter = 0; S.events.push({ t: 'light_dead', light: li }); }
     if (A.kind === 'gen') {
       S.power.off = true; S.power.t = 25;
       S.events.push({ t: 'power_off' });
@@ -325,6 +346,97 @@
       const g = S.guards.filter(o => o.state !== 'out' && o.state !== 'alert').sort((a, b) => len(a.x - G.x, a.z - G.z) - len(b.x - G.x, b.z - G.z))[0];
       if (g) { g.state = 'suspicious'; g.meter = Math.max(g.meter, 0.5); g.target = [G.x, G.z]; g.path = null; g.searchT = 0; }
     }
+  }
+
+  // ---------- التسلق ----------
+  // تحت السلّم ← mount ← يطلع (1.3 م/ث) ← top (حركة الملف ترفعه 1.28 م لقدام 0.58) ← فوق المنصة.
+  // النزول بالعكس. ما ينمسك وهو فوق، والحارس ما يطلع وراه — بس يقدر يشوفه وهو يتسلق.
+  T.LADDER_TOP = 1.28; T.CLIMB_SPEED = 1.3;
+  function updateClimb(S, dt) {
+    const P = S.player, l = P.ladder, c = P.climb; c.t += dt; P.moving = 0;
+    if (c.phase === 'mount' && c.t >= 0.7) { c.phase = 'up'; c.t = 0; }
+    else if (c.phase === 'up') { P.y = Math.min(l.h - T.LADDER_TOP, P.y + T.CLIMB_SPEED * dt); P.moving = 1; if (P.y >= l.h - T.LADDER_TOP) { c.phase = 'top'; c.t = 0; } }
+    else if (c.phase === 'top' && c.t >= 1.6) { P.mode = 'top'; P.y = l.h; P.x = l.top.x; P.z = l.top.z; P.climb = null; S.events.push({ t: 'on_top' }); }
+    else if (c.phase === 'down') { P.y = Math.max(0, P.y - T.CLIMB_SPEED * dt); P.moving = -1; if (P.y <= 0) { c.phase = 'dismount'; c.t = 0; } }
+    else if (c.phase === 'dismount' && c.t >= 0.5) { P.mode = 'ground'; P.y = 0; P.ladder = null; P.climb = null; P.dir = l.face + Math.PI; P.z += Math.cos(P.dir) * 0.3; P.x += Math.sin(P.dir) * 0.3; }
+  }
+
+  // ---------- الاختباء في السيارة ----------
+  function updateHide(S, dt) {
+    const P = S.player, h = P.hide; h.t += dt; P.moving = 0;
+    if (h.phase === 'enter' && h.t >= 1.4) { h.phase = 'in'; h.t = 0; S.events.push({ t: 'hidden' }); }
+    else if (h.phase === 'in') {
+      // وقت الإنذار: إذا حارس يفتش جنب السيارة ممكن يلقاه
+      if (S.alarm.on) for (const g of S.guards) {
+        if (g.state === 'calm' || g.state === 'out') continue;
+        if (len(g.x - h.spot.seat.x, g.z - h.spot.seat.z) < 2.0 && Math.random() < dt * 0.35) {
+          g.state = 'alert'; g.meter = 1; P.mode = 'ground'; P.hide = null; P.x = h.spot.x; P.z = h.spot.z; P.y = 0;
+          S.events.push({ t: 'found', g: g.id }); caught(S, g); return;
+        }
+      }
+    }
+    else if (h.phase === 'exit' && h.t >= 1.1) { P.mode = 'ground'; P.hide = null; P.x = h.spot.x; P.z = h.spot.z; P.y = 0; S.events.push({ t: 'unhide' }); }
+  }
+
+  // ---------- كبسولات الغاز المنوّم ----------
+  // يرميها على أقرب حارس قدامه (أو 6 م لقدام). وين ما تطيح تطلع سحابة غاز 5 ثواني وصوت يجذب الحراس القريبين.
+  // الحارس اللي يبقى في السحابة ينام (الثقيل ياخذ وقت أطول).
+  T.GAS = { range: 9, cone: 1.2, cloudR: 2.4, life: 5, flight: 0.65, noise: 6, sleep: { scout: 0.8, tech: 0.9, heavy: 1.6 } };
+  T.canThrow = function (S) {
+    const P = S.player;
+    return S.status === 'play' && P.gas > 0 && !S.subdue && !S.action && (P.mode === 'ground' || P.mode === 'top') && P.stance !== 'crawl';
+  };
+  T.gasTarget = function (S) {
+    const P = S.player; let best = null, bd = 99;
+    for (const g of S.guards) {
+      if (g.state === 'out') continue;
+      const dx = g.x - P.x, dz = g.z - P.z, d = len(dx, dz);
+      if (d > T.GAS.range || d >= bd) continue;
+      if (Math.abs(angDiff(P.dir, Math.atan2(dx, dz))) > T.GAS.cone) continue;
+      best = g; bd = d;
+    }
+    if (best) return { x: best.x, z: best.z, g: best.id };
+    let x = P.x + Math.sin(P.dir) * 6, z = P.z + Math.cos(P.dir) * 6;
+    return { x: clamp(x, -S.L.size.w / 2 + 1, S.L.size.w / 2 - 1), z: clamp(z, -S.L.size.d / 2 + 1, S.L.size.d / 2 - 1), g: null };
+  };
+  T.throwGas = function (S) {
+    if (!T.canThrow(S)) return false;
+    const P = S.player, tg = T.gasTarget(S);
+    if (tg.g != null) P.dir = Math.atan2(tg.x - P.x, tg.z - P.z);
+    S.action = { kind: 'throw', t: 0, need: 0.8, target: tg, released: false };
+    P.moving = 0;
+    return true;
+  };
+  function updateGas(S, dt) {
+    const P = S.player, A = S.action;
+    if (A && A.kind === 'throw' && !A.released && A.t >= 0.4) {
+      A.released = true; P.gas--;
+      S.shots.push({ x0: P.x + Math.sin(P.dir) * 0.3, z0: P.z + Math.cos(P.dir) * 0.3, y0: (P.y || 0) + 1.5, x1: A.target.x, z1: A.target.z, t: 0, dur: T.GAS.flight });
+      S.events.push({ t: 'gas_throw' });
+    }
+    for (let i = S.shots.length - 1; i >= 0; i--) {
+      const sh = S.shots[i]; sh.t += dt;
+      if (sh.t >= sh.dur) {
+        S.shots.splice(i, 1);
+        S.clouds.push({ x: sh.x1, z: sh.z1, r: T.GAS.cloudR, t: 0, life: T.GAS.life });
+        S.events.push({ t: 'gas_land', x: sh.x1, z: sh.z1 });
+        for (const g of S.guards) if (g.state === 'calm' && len(g.x - sh.x1, g.z - sh.z1) < T.GAS.noise) hear(S, g, sh.x1, sh.z1);
+      }
+    }
+    for (let i = S.clouds.length - 1; i >= 0; i--) { const c = S.clouds[i]; c.t += dt; if (c.t >= c.life) S.clouds.splice(i, 1); }
+    for (const g of S.guards) {
+      if (g.state === 'out') { g.gasT = 0; continue; }
+      const inC = S.clouds.some(c => len(g.x - c.x, g.z - c.z) < c.r * Math.min(1, 0.4 + c.t * 1.5));
+      g.gasT = inC ? (g.gasT || 0) + dt : Math.max(0, (g.gasT || 0) - dt);
+      if (g.gasT >= (T.GAS.sleep[g.type] || 1)) {
+        g.state = 'out'; g.outT = T.OUT_TIME; g.meter = 0; g.target = null; g.path = null; g.noticed = false; g.gasT = 0;
+        S.subdued = (S.subdued || 0) + 1; S.events.push({ t: 'gassed', g: g.id });
+      }
+    }
+    // التقاط كبسولات من الأرض
+    (S.L.gasPickups || []).forEach((p, i) => {
+      if (!S.picked[i] && P.mode === 'ground' && len(P.x - p.x, P.z - p.z) < 0.9) { S.picked[i] = 1; P.gas++; S.events.push({ t: 'gas_pick', n: P.gas }); }
+    });
   }
 
   T.canInteract = function (S) {
@@ -338,8 +450,21 @@
   };
 
   // ---------- الرؤية ----------
+  // العوائق اللي تحجب الرؤية عن ذيبان (لو فوق برج، المنصة اللي واقف عليها ما تحسب)
+  function obstaclesFor(S) {
+    const P = S.player;
+    if (P.mode === 'top' || P.mode === 'climb') { const own = P.ladder && P.ladder.obs; return own ? S.L.obstacles.filter(o => o !== own) : S.L.obstacles; }
+    return S.L.obstacles;
+  }
+  T.playerHidden = function (S) {
+    const P = S.player;
+    if (P.mode === 'hidden' && P.hide && P.hide.phase === 'in') return true;
+    if (P.mode === 'top' && P.stance !== 'stand') return true; // منبطح فوق السطح ما ينشاف من تحت
+    return false;
+  };
   T.canSee = function (S, g) {
     const P = S.player, st = T.STANCES[P.stance];
+    if (T.playerHidden(S)) return false;
     const dx = P.x - g.x, dz = P.z - g.z, d = len(dx, dz);
     const range = g.cfg.range * st.range * (g.state === 'alert' ? 1.25 : 1) * T.rangeMod(S);
     if (d > range) return false;
@@ -348,7 +473,7 @@
     const close = d < 1.3 && P.stance !== 'crawl' && off < 1.7;
     const fov = g.cfg.fov * (g.state === 'alert' ? 1.3 : 1);
     if (!close && off > fov * Math.PI / 360) return false;
-    return !blocked(S.L.obstacles, g.x, g.z, T.EYE, P.x, P.z, st.h);
+    return !blocked(obstaclesFor(S), g.x, g.z, T.EYE, P.x, P.z, (P.y || 0) + st.h);
   };
 
   // مخروط الرؤية المقصوص بالجدران — للرسم فقط
@@ -379,7 +504,13 @@
       return;
     }
     if (S.status !== 'play') return;
-    if (S.subdue) updateSubdue(S, dt); else if (S.action) updateAction(S, dt); else updatePlayer(S, input || {}, dt);
+    const P0 = S.player;
+    if (S.subdue) updateSubdue(S, dt);
+    else if (P0.mode === 'climb') updateClimb(S, dt);
+    else if (P0.mode === 'hidden') updateHide(S, dt);
+    else if (S.action) updateAction(S, dt);
+    else updatePlayer(S, input || {}, dt);
+    updateGas(S, dt);
     for (const g of S.guards) updateGuard(S, g, dt);
     if (S.status === 'play') { updateLights(S, dt); updateAlarm(S, dt); }
     checkZones(S);
@@ -398,9 +529,11 @@
   };
   T.inLight = function (S, l, i) {
     if (S.power && S.power.off) return false;
+    if (S.lights && S.lights[i] && S.lights[i].dead) return false;
+    if (T.playerHidden(S)) return false;
     const P = S.player, [lx, lz] = T.lightPos(S, l, i);
     if (len(P.x - lx, P.z - lz) > l.r) return false;
-    return !blocked(S.L.obstacles, l.sx, l.sz, l.sh, P.x, P.z, T.STANCES[P.stance].h);
+    return !blocked(obstaclesFor(S), l.sx, l.sz, l.sh, P.x, P.z, (P.y || 0) + T.STANCES[P.stance].h);
   };
   function updateLights(S, dt) {
     T.advanceLights(S, dt);
@@ -429,14 +562,18 @@
     const m = Math.min(1, len(mx, mz));
     if (m < 0.12) { P.moving = 0; P.running = false; }
     else {
-      const run = P.stance === 'stand' && (inp.run || m > 0.8);
+      const run = P.stance === 'stand' && P.mode !== 'top' && (inp.run || m > 0.8);
       const sp = (run ? st.run : st.walk) * (run ? 1 : Math.max(0.45, m / 0.8));
       const k = sp / len(mx, mz);
       P.x += mx * k * dt; P.z += mz * k * dt;
       P.dir = Math.atan2(mx, mz);
       P.moving = sp; P.running = run;
     }
-    pushOut(S.L, P, T.PLAYER_R, st.clear);
+    if (P.mode === 'top') { // فوق المنصة: يتحرك داخلها بس
+      const pl = P.ladder.plat, m2 = 0.35;
+      P.x = clamp(P.x, pl.x - pl.w / 2 + m2, pl.x + pl.w / 2 - m2); P.z = clamp(P.z, pl.z - pl.d / 2 + m2, pl.z + pl.d / 2 - m2);
+      P.running = false;
+    } else pushOut(S.L, P, T.PLAYER_R, st.clear);
     // الركض يطلع صوت
     P.noiseT -= dt;
     if (P.running && P.noiseT <= 0) {
@@ -524,7 +661,7 @@
 
     if (g.state === 'alert') {
       if (g.seen) { g.target = [P.x, P.z]; g.searchT = 0; }
-      if (g.seen && dP < T.CATCH + g.cfg.r) { caught(S, g); return; }
+      if (g.seen && dP < T.CATCH + g.cfg.r && (P.y || 0) < 0.5) { caught(S, g); return; }
       if (g.seen && dP < 3) { // قريب: يركض مباشرة
         const want = Math.atan2(P.x - g.x, P.z - g.z); turn(g, want, dt * 2);
         const s = g.cfg.chase * dt; g.x += Math.sin(g.dir) * s; g.z += Math.cos(g.dir) * s; pushOut(S.L, g, g.cfg.r * 0.8, 1.8);
@@ -590,7 +727,7 @@
     const P = S.player, L = S.L;
     L.checkpoints.forEach((c, i) => {
       if (i > S.checkpoint.idx && len(P.x - c.x, P.z - c.z) < c.r) {
-        S.checkpoint = { x: c.x, z: c.z, idx: i }; S.events.push({ t: 'checkpoint', i });
+        S.checkpoint = { x: c.x, z: c.z, idx: i, gas: P.gas, picked: Object.assign({}, S.picked) }; S.events.push({ t: 'checkpoint', i });
       }
     });
     (L.radio || []).forEach((r, i) => {

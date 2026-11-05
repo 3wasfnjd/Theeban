@@ -216,3 +216,59 @@ test('المهمة الأولى: اللوحات والمولد في أماكن �
   assert.ok(T.playerReachable(L, L.checkpoints[1], L.objective));
   assert.ok(T.findPath(L, 0, -6, 0, -12), 'البوابة مفتوحة للحراس');
 });
+
+test('التسلق: يطلع البرج، ما ينمسك فوق، ويعطّل الكشاف، وينزل', () => {
+  const L = T.makeLevel(LEVEL1);
+  const S = T.newGame(L); S.guards = [];
+  const l = L.ladders[0]; S.player.x = l.x; S.player.z = l.z;
+  const a = T.action(S); assert.ok(a && a.kind === 'climb');
+  T.doAction(S);
+  run(S, 6);
+  assert.strictEqual(S.player.mode, 'top'); assert.strictEqual(S.player.y, l.h);
+  S.player.x = l.ctrl.x; S.player.z = l.ctrl.z;
+  const b = T.action(S); assert.ok(b && b.kind === 'light', 'يقدر يعطّل الكشاف من فوق');
+  T.doAction(S); run(S, 1.5);
+  assert.ok(S.lights[l.light].dead, 'الكشاف تعطّل');
+  S.player.x = l.top.x; S.player.z = l.top.z;
+  assert.strictEqual(T.action(S).kind, 'down'); T.doAction(S); run(S, 6);
+  assert.strictEqual(S.player.mode, 'ground'); assert.strictEqual(S.player.y, 0);
+});
+
+test('التسلق: فوق السطح منحني ما ينشاف، وواقف ينشاف', () => {
+  const L = T.makeLevel(LEVEL1); const S = T.newGame(L);
+  const l = L.ladders[1]; S.player.mode = 'top'; S.player.ladder = l; S.player.y = l.h; S.player.x = 0; S.player.z = -17;
+  const g = S.guards[2]; g.x = 0; g.z = -10.8; g.dir = Math.PI; g.state = 'calm';
+  S.player.stance = 'crouch'; assert.strictEqual(T.canSee(S, g), false);
+  S.player.stance = 'stand'; assert.strictEqual(T.canSee(S, g), true);
+});
+
+test('الاختباء: داخل الوانيت ما يشوفه الحارس ولا الكشاف، ويطلع', () => {
+  const L = T.makeLevel(LEVEL1); const S = T.newGame(L);
+  const h = L.hideSpots[0]; S.player.x = h.x; S.player.z = h.z;
+  assert.strictEqual(T.action(S).kind, 'hide'); T.doAction(S); run(S, 1.6);
+  assert.strictEqual(S.player.hide.phase, 'in');
+  const g = S.guards[0]; g.x = -10; g.z = 15; g.dir = -Math.PI / 2;
+  assert.strictEqual(T.canSee(S, g), false);
+  assert.strictEqual(T.action(S).kind, 'exit'); T.doAction(S); run(S, 1.3);
+  assert.strictEqual(S.player.mode, 'ground');
+});
+
+test('الغاز: الكبسولة تنوّم الحارس اللي قدامه، والعدد ينقص، والتقاط كبسولة يزيد', () => {
+  const S = T.newGame(testLevel({ gasStart: 1, gasPickups: [{ x: 8, z: 12 }] }));
+  S.player.x = 0; S.player.z = 7; S.player.dir = Math.PI; S.player.stance = 'crouch'; // يطالع الحارس (عند 0,0)
+  S.guards[0].dir = Math.PI; // معطيه ظهره
+  assert.ok(T.canThrow(S));
+  T.throwGas(S); run(S, 3);
+  assert.strictEqual(S.player.gas, 0);
+  assert.strictEqual(S.guards[0].state, 'out', 'نام من الغاز');
+  assert.strictEqual(T.canThrow(S), false);
+  S.player.x = 8; S.player.z = 12; run(S, 0.1);
+  assert.strictEqual(S.player.gas, 1);
+});
+
+test('المهمة الأولى: السلالم وأماكن الاختباء والكبسولات يوصل لها', () => {
+  const L = T.makeLevel(LEVEL1);
+  for (const p of [...L.ladders, ...L.hideSpots, ...L.gasPickups]) assert.ok(T.playerReachable(L, L.start, p), JSON.stringify(p));
+  assert.ok(T.playerReachable(L, L.checkpoints[1], L.objective));
+  assert.ok(T.findPath(L, 0, -6, 0, -12), 'البوابة مفتوحة للحراس');
+});

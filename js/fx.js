@@ -219,7 +219,7 @@
       g.add(bx(o.w, 0.2, o.d, 0x5c4630, 0, H, 0));
       for (const [a, b, ww, dd] of [[0, -w, o.w, 0.08], [0, w, o.w, 0.08], [-w, 0, 0.08, o.d], [w, 0, 0.08, o.d]]) g.add(bx(ww, 0.9, dd, 0x5c4630, a, H + 0.55, b));
       for (const [a, b] of [[-w, -w], [w, -w], [w, w], [-w, w]]) g.add(bx(0.1, 1.9, 0.1, 0x4a3a2a, a, H + 1.05, b));
-      g.add(bx(o.w + 0.5, 0.15, o.d + 0.5, 0x3a2e22, 0, H + 2.05, 0));
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(o.w + 0.5, 0.15, o.d + 0.5), new THREE.MeshLambertMaterial({ color: 0x3a2e22, flatShading: true, transparent: true })); roof.position.y = H + 2.05; g.add(roof); g.userData.roof = roof;
       for (let y = 0.4; y < H; y += 0.45) g.add(bx(0.7, 0.06, 0.06, 0x6b5238, 0, y, o.d / 2 + 0.15));
       g.add(bx(0.06, H, 0.06, 0x6b5238, -0.33, H / 2, o.d / 2 + 0.15), bx(0.06, H, 0.06, 0x6b5238, 0.33, H / 2, o.d / 2 + 0.15));
       g.position.set(o.x, 0, o.z); return shade(g);
@@ -244,7 +244,7 @@
       const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.2), new THREE.MeshLambertMaterial({ map: rawafidSign() }));
       sign.position.set(0, 2.2, R + 0.04); g.add(sign);
       for (let y = 0.3; y < o.h; y += 0.4) g.add(bx(0.06, 0.06, 0.5, 0x6d6a63, R + 0.08, y, -0.3));
-      g.add(cy(0.18, 0.18, 2.4, 0x56636c, 10, R + 0.6, 0.18, 0.6)).rotation.x = Math.PI / 2;
+      const tp = cy(0.18, 0.18, 2.4, 0x56636c, 10, R + 0.6, 0.18, 0.6); tp.rotation.x = Math.PI / 2; g.add(tp);
       g.position.set(o.x, 0, o.z); g.rotation.y = 0.5; return shade(g);
     },
     gen(o) { // مولد كهربا يطقطق
@@ -313,6 +313,54 @@
       }
       for (const u of [-8, 7]) { g.add(cy(0.08, 0.08, 0.4, 0x2f5670, 8, along ? u : 0, 0.72, along ? 0 : u)); const w = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.04, 6, 14), lam(0xb03020)); w.rotation.x = Math.PI / 2; w.position.set(along ? u : 0, 0.92, along ? 0 : u); g.add(w); }
       g.position.set(o.x, 0, o.z); return shade(g);
+    },
+    jeep(o) { // جيب مهجور بدون سقف، تقدر تنبطح داخله
+      const g = new THREE.Group(), c = 0x5d6248, along = o.w > o.d, L = Math.max(o.w, o.d), W = Math.min(o.w, o.d);
+      const inner = new THREE.Group(); g.add(inner);
+      inner.add(bx(W, 0.55, L, c, 0, 0.75, 0));                       // الجسم
+      inner.add(bx(W - 0.2, 0.06, L - 0.3, 0x2c2a24, 0, 1.03, 0));     // الأرضية من فوق (مفتوح)
+      for (const sx of [-1, 1]) inner.add(bx(0.08, 0.45, L - 0.2, c, sx * (W / 2 - 0.04), 1.25, 0));
+      inner.add(bx(W, 0.45, 0.08, c, 0, 1.25, -L / 2 + 0.04), bx(W, 0.5, 0.9, c, 0, 1.25, L / 2 - 0.45)); // ورا / كبوت
+      inner.add(bx(W - 0.1, 0.5, 0.05, 0x1a232b, 0, 1.6, L / 2 - 0.95)); // زجاج
+      inner.add(bx(0.5, 0.35, 0.45, 0x3a3226, -0.35, 1.2, -0.2), bx(0.5, 0.35, 0.45, 0x3a3226, 0.35, 1.2, -0.2)); // كراسي
+      const wheel = (x, z) => { const w = cy(0.38, 0.38, 0.3, 0x1b1b1b, 12, x, 0.38, z); w.rotation.z = Math.PI / 2; inner.add(w); };
+      wheel(-W / 2, L / 2 - 0.6); wheel(W / 2, L / 2 - 0.6); wheel(-W / 2, -L / 2 + 0.6); wheel(W / 2, -L / 2 + 0.6);
+      const spare = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.12, 6, 12), lam(0x1b1b1b)); spare.position.set(0, 1.1, -L / 2 - 0.1); inner.add(spare);
+      if (along) inner.rotation.y = Math.PI / 2;
+      g.position.set(o.x, 0, o.z); g.rotation.y = 0.03; return shade(g);
+    },
+    palm(o) { // نخلة: جذع بحلقات وسعف
+      const g = new THREE.Group(), r = rng(Math.round(o.x * 13 + o.z * 7) + 99), H = o.h;
+      const lean = (r() - 0.5) * 0.25;
+      for (let i = 0; i < 9; i++) { const seg = cy(0.2 - i * 0.008, 0.23 - i * 0.008, H / 9, i % 2 ? 0x6b5434 : 0x5b4529, 8, lean * i * 0.5, H / 18 + i * H / 9, 0); g.add(seg); }
+      const top = new THREE.Group(); top.position.set(lean * 4.5, H, 0); g.add(top);
+      for (let i = 0; i < 9; i++) {
+        const a = i / 9 * Math.PI * 2 + r() * 0.3, fr = new THREE.Mesh(new THREE.ConeGeometry(0.28, 2.6, 4, 1), lam(i % 2 ? 0x4c6b2a : 0x3e5a22));
+        fr.scale.set(1, 1, 0.25); fr.position.set(Math.sin(a) * 1.1, -0.35, Math.cos(a) * 1.1);
+        fr.rotation.set(Math.cos(a) * 1.9, 0, -Math.sin(a) * 1.9); top.add(fr);
+      }
+      for (let i = 0; i < 5; i++) { const d = new THREE.Mesh(new THREE.SphereGeometry(0.12, 5, 4), lam(0x9a5a1e)); d.position.set(Math.sin(i) * 0.25, -0.35, Math.cos(i) * 0.25); top.add(d); }
+      g.userData.sway = top;
+      g.position.set(o.x, 0, o.z); return shade(g);
+    },
+    fire(o) { // مجلس الحراس: زولية، مساند، نار، دلة وفناجين
+      const g = new THREE.Group();
+      const rugTex = canvasTex(128, 96, (x, w, h) => { x.fillStyle = '#7a1f1f'; x.fillRect(0, 0, w, h); x.strokeStyle = '#d6b25a'; x.lineWidth = 4; x.strokeRect(6, 6, w - 12, h - 12); x.fillStyle = '#1f3a5a'; for (let i = 0; i < 5; i++) { x.beginPath(); x.moveTo(20 + i * 22, 48); x.lineTo(31 + i * 22, 30); x.lineTo(42 + i * 22, 48); x.lineTo(31 + i * 22, 66); x.fill(); } });
+      const rug = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 2.2), new THREE.MeshLambertMaterial({ map: rugTex })); rug.rotation.x = -Math.PI / 2; rug.position.set(0.9, 0.02, 0); g.add(rug);
+      for (const [x, z, ry] of [[2.2, -0.6, 0], [2.2, 0.6, 0], [0.9, -0.95, Math.PI / 2]]) { const c = bx(0.35, 0.4, 0.7, 0x2e4a6a, x, 0.2, z); c.rotation.y = ry; g.add(c); }
+      for (let i = 0; i < 7; i++) { const a = i / 7 * Math.PI * 2; g.add(bx(0.18, 0.15, 0.14, 0x4a4038, Math.cos(a) * 0.35, 0.07, Math.sin(a) * 0.35)); } // حجار الشبة
+      for (let i = 0; i < 3; i++) { const l = bx(0.5, 0.08, 0.08, 0x3a2a1a, 0, 0.1, 0); l.rotation.y = i; g.add(l); }
+      const flame = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.45, 6), new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.9 })); flame.position.y = 0.3; g.add(flame);
+      const f2 = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.3, 6), new THREE.MeshBasicMaterial({ color: 0xffe080 })); f2.position.y = 0.25; g.add(f2);
+      const fg = glow(2.2, 0xff8a30, 0.8); fg.position.y = 0.4; g.add(fg);
+      const fp = pool(3.2, 0xff8a30, 0.4); g.add(fp);
+      // دلة وفناجين
+      const dallah = new THREE.Group(); dallah.position.set(0.55, 0.02, 0.35); g.add(dallah);
+      dallah.add(cy(0.1, 0.13, 0.2, 0xc9a640, 10, 0, 0.1, 0), cy(0.06, 0.1, 0.12, 0xc9a640, 10, 0, 0.26, 0), cy(0.03, 0.06, 0.08, 0xc9a640, 10, 0, 0.36, 0));
+      const spout = cy(0.015, 0.03, 0.22, 0xc9a640, 6, 0.11, 0.25, 0); spout.rotation.z = -0.9; dallah.add(spout);
+      for (let i = 0; i < 3; i++) g.add(cy(0.035, 0.025, 0.05, 0xf0ece0, 8, 1.1 + i * 0.12, 0.045, 0.3));
+      g.userData.fire = { flame, f2, fg, fp };
+      g.position.set(o.x, 0, o.z); return g;
     },
     fence(o) { // سور شبك بأسلاك شائكة
       const g = new THREE.Group(), along = o.w > o.d, Lh = Math.max(o.w, o.d), n = Math.round(Lh / 3);
@@ -427,6 +475,62 @@
       sp.material.opacity = powerOff ? 0 : 0.28 * (1 - f) * Math.min(1, f * 6);
     }
     D.far.children.forEach((c, i) => { if (i < 14 && i % 5 === 0) c.material.opacity = Math.floor(t * 1.2 + i) % 2 ? 0.9 : 0.15; });
+  };
+
+  // ---------- سلّم (للبرج) ----------
+  FX.ladder = function (scene, x, z, h, ry) {
+    const g = new THREE.Group();
+    g.add(bx(0.06, h + 0.9, 0.06, 0x6b7076, -0.28, (h + 0.9) / 2, 0), bx(0.06, h + 0.9, 0.06, 0x6b7076, 0.28, (h + 0.9) / 2, 0));
+    for (let y = 0.3; y < h; y += 0.32) g.add(bx(0.56, 0.05, 0.05, 0x8a8f95, 0, y, 0));
+    g.position.set(x, 0, z); g.rotation.y = ry || 0; scene.add(shade(g)); return g;
+  };
+  // صندوق تحكم الكشاف فوق المنصة
+  FX.lightCtrl = function (scene, x, y, z) {
+    const g = new THREE.Group();
+    g.add(bx(0.5, 0.7, 0.35, 0x3c4248, 0, 0.35, 0));
+    const led = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), new THREE.MeshBasicMaterial({ color: 0x33ff66 })); led.position.set(0.12, 0.58, 0.18); g.add(led);
+    const gl = glow(0.7, 0x33ff66, 0.7); gl.position.copy(led.position); g.add(gl);
+    g.position.set(x, y, z); scene.add(shade(g));
+    return { g, led, gl };
+  };
+  // كم الريح فوق برج الحراسة
+  FX.windsock = function (scene, x, y, z) {
+    const g = new THREE.Group(); g.add(bx(0.05, 1.2, 0.05, 0x8a8f95, 0, 0.6, 0));
+    const sock = new THREE.Group(); sock.position.y = 1.15; g.add(sock);
+    for (let i = 0; i < 4; i++) { const c = cy(0.16 - i * 0.025, 0.14 - i * 0.025, 0.28, i % 2 ? 0xf0f0f0 : 0xff6a1a, 8, 0, 0, 0); c.rotation.z = Math.PI / 2; c.position.x = 0.16 + i * 0.27; sock.add(c); }
+    g.position.set(x, y, z); scene.add(g); return sock;
+  };
+  // كرات شوك يابس تتدحرج مع الريح
+  FX.tumbleweeds = function (scene, n) {
+    const list = [], r = rng(31);
+    for (let i = 0; i < n; i++) {
+      const m = new THREE.Mesh(new THREE.IcosahedronGeometry(0.35 + r() * 0.2, 1), new THREE.MeshLambertMaterial({ color: 0x8a7550, wireframe: true }));
+      m.position.set(-25 + r() * 50, 0.35, -20 + r() * 40); scene.add(m); list.push({ m, v: 2 + r() * 2, ph: r() * 10 });
+    }
+    return list;
+  };
+  FX.updateTumble = function (list, dt, t) {
+    for (const o of list) {
+      const m = o.m; m.position.x += o.v * dt; m.position.z += Math.sin(t * 0.5 + o.ph) * dt * 0.8;
+      m.rotation.z -= o.v * dt / 0.4; m.position.y = 0.35 + Math.abs(Math.sin(t * 3 + o.ph)) * 0.25;
+      if (m.position.x > 26) { m.position.x = -26; m.position.z = (Math.random() - 0.5) * 40; }
+    }
+  };
+  // سحابة غاز منوّم
+  FX.gasCloud = function (scene, x, z, r) {
+    const g = new THREE.Group(), puffs = [];
+    for (let i = 0; i < 14; i++) {
+      const sp = glow(1, 0x9fd08a, 0); sp.material = sp.material.clone(); sp.material.blending = THREE.NormalBlending;
+      const a = i / 14 * Math.PI * 2 + Math.random(), d = Math.random() * r * 0.8;
+      sp.userData = { x: Math.sin(a) * d, z: Math.cos(a) * d, y: 0.3 + Math.random() * 1.2, s: 1.4 + Math.random() * 1.6 }; g.add(sp); puffs.push(sp);
+    }
+    const ring = pool(r, 0x9fd08a, 0.35); g.add(ring);
+    g.position.set(x, 0, z); scene.add(g); return { g, puffs, ring };
+  };
+  FX.updateGasCloud = function (C, c) {
+    const k = Math.min(1, c.t * 2), fade = Math.min(1, (c.life - c.t) / 1.2);
+    for (const sp of C.puffs) { const u = sp.userData; sp.position.set(u.x * (0.4 + k * 0.6), u.y + c.t * 0.12, u.z * (0.4 + k * 0.6)); sp.scale.setScalar(u.s * (0.4 + k * 0.7)); sp.material.opacity = 0.42 * fade * k; }
+    C.ring.material.opacity = 0.3 * fade; C.ring.scale.setScalar(0.4 + k * 0.6);
   };
 
   root.FX = FX;

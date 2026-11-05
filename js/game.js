@@ -76,7 +76,13 @@
   const ICON_SUB = '<path d="m14 4 6 6M17 7l-9 9-3 1 1-3 9-9M4 20l3-3"/>';
   const ICON_BELL = '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20h4M3 3l18 18"/>';
   const ICON_BOLT = '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>';
-  const ACT = { take: ['تفاعل', ICON_HAND], subdue: ['تخدير', ICON_SUB], panel: ['أطفئ', ICON_BELL], gen: ['اقطع', ICON_BOLT], none: ['تفاعل', ICON_HAND] };
+  const ICON_UP = '<path d="M7 21V3M17 21V3M7 7h10M7 12h10M7 17h10"/><path d="m12 1-2 2h4z"/>';
+  const ICON_DOWN = '<path d="M7 21V3M17 21V3M7 7h10M7 12h10M7 17h10"/><path d="m12 23-2-2h4z"/>';
+  const ICON_LIGHT = '<path d="M5 9h6l4-4v14l-4-4H5zM18 8l3-2M18 16l3 2M3 3l18 18"/>';
+  const ICON_CAR = '<path d="M3 16v-4l2-5h14l2 5v4zM6 16v2M18 16v2M3 12h18"/>';
+  const ICON_OUT = '<path d="M10 4H5v16h5M14 8l4 4-4 4M18 12H9"/>';
+  const ACT = { take: ['تفاعل', ICON_HAND], subdue: ['تخدير', ICON_SUB], panel: ['أطفئ', ICON_BELL], gen: ['اقطع', ICON_BOLT],
+    climb: ['تسلق', ICON_UP], down: ['انزل', ICON_DOWN], light: ['عطّل', ICON_LIGHT], hide: ['اختبي', ICON_CAR], exit: ['اطلع', ICON_OUT], throw: ['رمي', ICON_HAND], none: ['تفاعل', ICON_HAND] };
   let radioT = 0, toastT = 0, lastLevel = 0, alarmHint = 0;
 
   function showRadio(who, text) { $('radioWho').textContent = who + ':'; $('radioTxt').textContent = text; $('radio').classList.add('on'); radioT = 4 + text.length * 0.05; SFX.radio(); }
@@ -94,7 +100,10 @@
     const act = $('act');
     if (act.dataset.m !== mode) { act.dataset.m = mode; const M = ACT[mode] || ACT.take; $('actTxt').textContent = M[0]; $('actIcon').innerHTML = M[1]; }
     act.disabled = mode === 'none'; act.classList.toggle('act', mode !== 'none'); act.classList.toggle('sub', mode !== 'none' && mode !== 'take');
-    act.style.setProperty('--p', busy ? Math.min(1, busy.t / busy.need) : 0);
+    act.style.setProperty('--p', busy && busy.kind !== 'throw' ? Math.min(1, busy.t / busy.need) : 0);
+    const gb = $('gas'), gn = S.player.gas;
+    if (gb.dataset.n !== String(gn)) { gb.dataset.n = gn; $('gasN').textContent = '×' + gn; }
+    gb.disabled = !TH.canThrow(S);
     if (radioT > 0 && (radioT -= dt) <= 0) $('radio').classList.remove('on');
     if (toastT > 0 && (toastT -= dt) <= 0) $('toast').classList.remove('on');
     drawRadar();
@@ -140,6 +149,14 @@
       else if (e.t === 'alarm_off') { SFX.cp(); toast(e.why === 'timeout' ? 'هدأ الإنذار' : 'انطفى الإنذار', 1.3); }
       else if (e.t === 'power_off') { SFX.power(); toast('انقطعت الكهربا', 1.3); ctx.shake = 0.25; }
       else if (e.t === 'power_on') { tone(200, 0.4, 'sawtooth', 0.06, 600); toast('رجعت الكهربا', 1.2); }
+      else if (e.t === 'gas_pick') { SFX.cp(); toast('+1 غاز', 1); }
+      else if (e.t === 'gas_throw') tone(500, 0.15, 'triangle', 0.06, 900);
+      else if (e.t === 'gas_land') { tone(160, 0.4, 'sawtooth', 0.05, 60); W.noiseRing(ctx, e.x, e.z, 6); }
+      else if (e.t === 'gassed') { SFX.subdue(); toast('نام بالغاز', 1.1); }
+      else if (e.t === 'light_dead') { tone(900, 0.5, 'square', 0.06, 80); toast('تعطّل الكشاف', 1.3); }
+      else if (e.t === 'hidden') toast('مختبي', 0.9);
+      else if (e.t === 'found') { SFX.alert(); toast('لقوك!', 1.2); }
+      else if (e.t === 'on_top') toast('فوق', 0.7);
     }
     S.events.length = 0;
     if (S.player.moving && S.player.stance === 'stand') { stepT -= dt; if (stepT <= 0) { stepT = S.player.running ? 0.28 : 0.5; SFX.step(); } }
@@ -168,6 +185,7 @@
   function press(el, fn) { el.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); audio(); fn(); }); }
   press($('stance'), () => { if (S && S.status === 'play' && introT <= 0) { const before = S.player.stance; if (TH.cycleStance(S) === before) toast('ما تقدر', 0.8); } });
   press($('act'), () => { if (!S || introT > 0) return; TH.doAction(S); });
+  press($('gas'), () => { if (!S || introT > 0) return; TH.throwGas(S); });
 
   doc.addEventListener('keydown', e => {
     keys[e.code] = true;
@@ -175,6 +193,7 @@
     if (introT > 0) { if (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape') endIntro(); return; }
     if (e.code === 'KeyC' || e.code === 'Space') { TH.cycleStance(S); e.preventDefault(); }
     if (e.code === 'KeyE' || e.code === 'Enter' || e.code === 'KeyF') TH.doAction(S);
+    if (e.code === 'KeyG' || e.code === 'KeyQ') TH.throwGas(S);
   });
   doc.addEventListener('keyup', e => { keys[e.code] = false; });
   function keyInput() {

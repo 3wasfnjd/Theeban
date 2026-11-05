@@ -227,10 +227,33 @@
     const lamps = [[-3.2, -9.0, 0xffb060, 0], [3.2, -9.0, 0xffb060, 1], [-4.5, -13.6, 0xbfe2ff, 0], [4.6, -20.9, 0xbfe2ff, 0], [-11.5, -3.2, 0xffb060, 1], [12.6, 4.2, 0xffb060, 0], [-17, 6, 0xffb060, 0]]
       .map(([x, z, c, f]) => FX.lamp(scene, x, z, c, f));
     const sls = (L.searchlights || []).map(l => FX.searchlight(scene, l));
-    const beacons = [[-2.1, 3.15, -10], [2.1, 3.15, -10], [1.5, 2.85, -14.9], [17.6, 6.85, 19.6]].map(([x, y, z]) => FX.beacon(scene, x, y, z));
+    const beacons = [[-2.1, 3.15, -10], [2.1, 3.15, -10], [1.5, 2.85, -14.9], [17.6, 6.85, 19.2]].map(([x, y, z]) => FX.beacon(scene, x, y, z));
     const dust = FX.dust(scene);
     const details = FX.details(scene, L);
     const panels = (L.panels || []).map(p => FX.panel(scene, p));
+    // سلّم البرج + صناديق تحكم الكشافات فوق المنصات + كم الريح + شوك يتدحرج
+    for (const l of L.ladders || []) if (l.id === 'tower') FX.ladder(scene, l.x - 0.5, l.z, l.h, -Math.PI / 2);
+    const ctrls = (L.ladders || []).map(l => l.light != null ? Object.assign(FX.lightCtrl(scene, l.ctrl.x + (l.id === 'post' ? 0.6 : 0.8), l.h, l.ctrl.z - 0.3), { light: l.light }) : null).filter(Boolean);
+    const post = L.obstacles.find(o => o.kind === 'post');
+    const sock = post ? FX.windsock(scene, post.x - post.w / 2 - 0.1, post.h + 1.4, post.z - post.d / 2) : null;
+    const tumble = FX.tumbleweeds(scene, 3);
+    const roofs = []; scene.traverse(o => { if (o.userData && o.userData.roof) roofs.push(o.userData.roof); });
+    ctxRef.roofs = roofs;
+    const sways = [], fires = []; scene.traverse(o => { if (o.userData && o.userData.sway) sways.push(o.userData.sway); if (o.userData && o.userData.fire) fires.push(o.userData.fire); });
+    // كبسولات الغاز: نموذج مؤقت لين يتحمّل gas_capsule.glb
+    const capGeo = new THREE.CapsuleGeometry(0.028, 0.06, 4, 8);
+    const capMat = new THREE.MeshLambertMaterial({ color: 0x8fd0a0, emissive: 0x1a3a22 });
+    ctxRef.capProto = new THREE.Mesh(capGeo, capMat);
+    W.loadCapsule(ctxRef);
+    const pickups = (L.gasPickups || []).map(p => {
+      const g = new THREE.Group(); g.position.set(p.x, 0, p.z);
+      const holder = new THREE.Group(); holder.position.y = 0.45; holder.scale.setScalar(3.2); g.add(holder);
+      const gl = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.5, 24), new THREE.MeshBasicMaterial({ color: 0x9fd08a, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false }));
+      gl.rotation.x = -Math.PI / 2; gl.position.y = 0.04; g.add(gl);
+      scene.add(g); return { g, holder, ring: gl };
+    });
+    const shotsG = new THREE.Group(); scene.add(shotsG);
+    const clouds = new Map();
     const lit = []; scene.traverse(o => { if (o.userData && o.userData.lit) lit.push(...o.userData.lit); });
     const flick = []; scene.traverse(o => { if (o.userData && o.userData.flick) flick.push(o.userData.flick); });
 
@@ -253,7 +276,7 @@
     const guards = [], cones = [];
     const RAYS = 22;
 
-    const ctx = ctxRef; Object.assign(ctx, { renderer, scene, camera, moon, hemi, sky, lamps, sls, beacons, dust, flick, details, panels, lit, player, guards, cones, objG, ring, rec, cps, rings: [], RAYS, camPos: new THREE.Vector3(), lookAt: new THREE.Vector3(), t: 0, alarm: 0, shake: 0, intro: 0 });
+    const ctx = ctxRef; Object.assign(ctx, { renderer, scene, camera, moon, hemi, sky, lamps, sls, beacons, dust, flick, details, panels, lit, ctrls, sock, tumble, sways, fires, pickups, shotsG, clouds, player, guards, cones, objG, ring, rec, cps, rings: [], RAYS, camPos: new THREE.Vector3(), lookAt: new THREE.Vector3(), t: 0, alarm: 0, shake: 0, intro: 0 });
     W.syncGuards(ctx, S);
     W.resize(ctx);
     W.snapCamera(ctx, S);
@@ -281,7 +304,8 @@
 
   function camTarget(ctx, S, out) {
     const P = S.player, k = ctx.camDist || 1;
-    return out.set(P.x, 13 * k, P.z + 9 * k);
+    const up = P.mode === 'top' ? 1.25 : 1;
+    return out.set(P.x, 13 * k * up + (P.y || 0), P.z + 9 * k * up);
   }
   W.snapCamera = function (ctx, S) { camTarget(ctx, S, ctx.camPos); ctx.camera.position.copy(ctx.camPos); ctx.camera.lookAt(S.player.x, 0, S.player.z - 1.2); };
 
@@ -292,8 +316,15 @@
 
     // ذيبان
     const pm = ctx.player, pose = pm.userData.pose;
-    pm.position.set(P.x, 0, P.z);
-    pm.rotation.y += TH.angDiff(pm.rotation.y, P.dir) * Math.min(1, dt * 14);
+    let px = P.x, py = P.y || 0, pz = P.z, pdir = P.dir;
+    if (P.mode === 'hidden' && P.hide) { // يدخل السيارة وينسدح فيها
+      const h = P.hide, seat = h.spot.seat, f = h.phase === 'in' ? 1 : h.phase === 'enter' ? Math.min(1, Math.max(0, (h.t - 0.3) / 0.9)) : 1 - Math.min(1, h.t / 0.9);
+      px = h.spot.x + (seat.x - h.spot.x) * f; pz = h.spot.z + (seat.z - h.spot.z) * f; py = seat.y * Math.min(1, f * 1.6);
+      pdir = f > 0.5 ? seat.dir : h.spot.face;
+    }
+    pm.position.set(px, py, pz);
+    const snap = P.mode === 'climb' || P.mode === 'hidden';
+    pm.rotation.y += TH.angDiff(pm.rotation.y, pdir) * (snap ? 1 : Math.min(1, dt * 14));
     if (ctx.hero) { W.animateHero(ctx, S, dt, t); }
     else {
       const bob = P.moving ? Math.abs(Math.sin(t * (P.running ? 13 : 8))) * (P.running ? 0.09 : 0.05) : 0;
@@ -361,6 +392,20 @@
     for (const w of ctx.lit) w.material.color.setHex(off ? 0x1a1a1a : 0xffc070);
     ctx.panels.forEach(p => FX.updatePanel(p, S.alarm && S.alarm.on, off, t));
     FX.updateDetails(ctx.details, t, off);
+    ctx.sls.forEach((o, i) => { if (S.lights[i] && S.lights[i].dead) o.beam.visible = o.spot.visible = o.ring.visible = o.glow.visible = false; });
+    for (const c of ctx.ctrls) { const dead = S.lights[c.light] && S.lights[c.light].dead, col = off ? 0x111111 : dead ? (Math.floor(t * 6) % 2 ? 0xff3322 : 0x220000) : 0x33ff66; c.led.material.color.setHex(col); c.gl.material.color.setHex(col); c.gl.material.opacity = off || (dead && !(Math.floor(t * 6) % 2)) ? 0 : 0.7; }
+    const onPost = (P.mode === 'top' || P.mode === 'climb') && P.ladder && P.ladder.id === 'post';
+    for (const r of ctx.roofs) { r.material.opacity += ((onPost ? 0.15 : 1) - r.material.opacity) * Math.min(1, dt * 6); }
+    if (ctx.sock) { ctx.sock.rotation.y = Math.sin(t * 0.4) * 0.3; ctx.sock.rotation.z = -0.15 + Math.sin(t * 7) * 0.05; }
+    FX.updateTumble(ctx.tumble, dt, t);
+    ctx.sways.forEach((sw, i) => { sw.rotation.z = Math.sin(t * 1.1 + i) * 0.05; sw.rotation.x = Math.sin(t * 0.8 + i * 2) * 0.04; });
+    for (const f of ctx.fires) { const k2 = 0.8 + Math.random() * 0.3; f.flame.scale.set(1, k2, 1); f.f2.scale.set(1, 0.8 + Math.random() * 0.4, 1); f.fg.material.opacity = 0.6 + Math.random() * 0.3; f.fp.material.opacity = 0.32 + Math.random() * 0.12; }
+    // كبسولات على الأرض، وطايرة، وسحب الغاز
+    ctx.pickups.forEach((pk, i) => { const on = !S.picked[i]; pk.g.visible = on; if (on) { pk.holder.rotation.y = t * 1.5; pk.holder.position.y = 0.45 + Math.sin(t * 2.5 + i) * 0.08; pk.ring.scale.setScalar(1 + Math.sin(t * 3) * 0.1); if (!pk.holder.children.length && ctx.capProto) pk.holder.add(ctx.capProto.clone()); } });
+    while (ctx.shotsG.children.length < S.shots.length) ctx.shotsG.add(ctx.capProto.clone());
+    ctx.shotsG.children.forEach((m, i) => { const sh = S.shots[i]; m.visible = !!sh; if (!sh) return; const f = sh.t / sh.dur; m.position.set(sh.x0 + (sh.x1 - sh.x0) * f, sh.y0 * (1 - f) + Math.sin(f * Math.PI) * 2.2, sh.z0 + (sh.z1 - sh.z0) * f); m.rotation.x += dt * 14; m.scale.setScalar(2.5); });
+    for (const c of S.clouds) { if (!ctx.clouds.has(c)) ctx.clouds.set(c, FX.gasCloud(ctx.scene, c.x, c.z, c.r)); FX.updateGasCloud(ctx.clouds.get(c), c); }
+    for (const [c, C] of ctx.clouds) if (!S.clouds.includes(c)) { ctx.scene.remove(C.g); ctx.clouds.delete(c); }
     ctx.darkness = (ctx.darkness || 0) + ((off ? 1 : 0) - (ctx.darkness || 0)) * Math.min(1, dt * 2);
     ctx.hemi.intensity = 0.9 - ctx.darkness * 0.25;
     FX.updateDust(ctx.dust, P.x, P.z, dt, t);
@@ -408,13 +453,22 @@
       const mixer = new THREE.AnimationMixer(model), actions = {};
       for (const clip of gltf.animations) {
         const a = mixer.clipAction(clip); actions[clip.name] = a;
-        if (['subdue', 'interact', 'caught'].includes(clip.name)) { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; }
+        if (['subdue', 'interact', 'caught', 'ladder_mount', 'ladder_top', 'car_enter', 'car_exit', 'throw_gas', 'crouch_throw_gas'].includes(clip.name)) { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; }
       }
       const scarf = ['Scarf_1', 'Scarf_2', 'Scarf_3'].map(n => bones[n]).filter(Boolean);
       ctx.hero = { model, mixer, actions, cur: null, scarf };
       W.playHero(ctx.hero, 'idle', 0);
       root.dispatchEvent && root.dispatchEvent(new Event('theeban-hero'));
     }, undefined, err => { console.warn('theeban.glb', err && err.message); });
+  };
+  W.loadCapsule = function (ctx) {
+    if (!THREE.GLTFLoader) return;
+    new THREE.GLTFLoader().load('assets/props/gas_capsule.glb?v=' + (root.TH_VERSION || '1'), gltf => {
+      const m = gltf.scene; m.traverse(o => { if (o.isMesh) { o.castShadow = true; if (o.material) { o.material.metalness = 0.3; o.material.roughness = 0.5; o.material.emissive = new THREE.Color(0x0f2a16); } } });
+      ctx.capProto = m;
+      if (ctx.pickups) ctx.pickups.forEach(pk => { pk.holder.clear(); });
+      if (ctx.shotsG) ctx.shotsG.clear();
+    }, undefined, () => {});
   };
   W.playHero = function (H, name, fade) {
     if (H.cur === name || !H.actions[name]) return;
@@ -425,16 +479,29 @@
   };
   W.animateHero = function (ctx, S, dt, t) {
     const H = ctx.hero, P = S.player;
-    let clip;
+    let clip, fade = 0.2;
+    const A = S.action;
     if (S.status === 'caught') clip = 'caught';
+    else if (P.mode === 'climb') {
+      const c = P.climb; clip = c.phase === 'mount' ? 'ladder_mount' : c.phase === 'top' ? 'ladder_top' : c.phase === 'dismount' ? 'idle' : 'ladder_climb';
+      fade = c.phase === 'top' ? 0.1 : 0.15;
+    }
+    else if (P.mode === 'hidden') { const ph = P.hide.phase; clip = ph === 'enter' ? 'car_enter' : ph === 'in' ? 'car_hide_idle' : 'car_exit'; fade = 0.1; }
+    else if (A && A.kind === 'throw') clip = P.stance === 'crouch' ? 'crouch_throw_gas' : 'throw_gas';
     else if (S.subdue) clip = 'subdue';
     else if (S.action) clip = 'interact';
     else if (P.stance === 'crawl') clip = P.moving ? 'crawl' : 'crawl_idle';
     else if (P.stance === 'crouch') clip = P.moving ? 'crouch_walk' : 'crouch_idle';
     else clip = P.running ? 'run' : P.moving ? 'walk' : 'idle';
-    W.playHero(H, clip, clip === 'caught' ? 0.1 : 0.2);
+    // بعد ما يوصل فوق المنصة ننقل الجسم فوق، فلازم التبديل يكون فوري عشان ما يقفز
+    if (H.cur === 'ladder_top' && clip !== 'ladder_top') fade = 0;
+    if (H.cur === 'car_exit' && clip !== 'car_exit') fade = 0.05;
+    if (!H.actions[clip]) clip = P.mode === 'climb' ? 'idle' : P.mode === 'hidden' ? 'crawl_idle' : A ? 'interact' : clip;
+    W.playHero(H, clip, clip === 'caught' ? 0.1 : fade);
     const a = H.actions[clip];
-    if (a && NOMINAL[clip]) a.timeScale = Math.max(0.5, Math.min(1.6, P.moving / NOMINAL[clip]));
+    if (a && clip === 'ladder_climb') a.timeScale = P.moving < 0 ? -1 : 1;
+    else if (a && clip === 'ladder_mount' && P.climb && P.climb.phase === 'dismount') a.timeScale = -1;
+    else if (a && NOMINAL[clip]) a.timeScale = Math.max(0.5, Math.min(1.6, P.moving / NOMINAL[clip]));
     else if (a) a.timeScale = 1;
     H.mixer.update(dt);
     // الوشاح يرفرف مع الريح والحركة (فوق حركة الملف)
