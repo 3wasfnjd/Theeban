@@ -26,6 +26,8 @@
   T.CATCH = 1.05;       // مسافة الإمساك
   T.NOISE_RUN = 6.5;    // نصف قطر صوت الركض
   T.ALERT_SHARE = 14;   // الحارس اللي ينذر يبلّغ اللي حوله
+  T.SUBDUE_DIST = 1.5;  // مسافة التخدير من ورا
+  T.OUT_TIME = 45;      // كم ثانية ينام الحارس المخدّر
 
   // ---------- أدوات رياضية ----------
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -190,7 +192,8 @@
       L, time: 0, status: 'play', // play | caught | won
       player: { x: L.start.x, z: L.start.z, dir: L.start.dir || Math.PI, stance: 'stand', moving: 0, running: false, noiseT: 0 },
       checkpoint: { x: L.start.x, z: L.start.z, idx: -1 },
-      guards: [], events: [], radioDone: {}, caughtT: 0, catches: 0, objectiveTaken: false
+      guards: [], events: [], radioDone: {}, caughtT: 0, catches: 0, objectiveTaken: false,
+      lights: (L.searchlights || []).map(() => ({ meter: 0, lit: false }))
     };
     S.guards = L.guards.map((g, i) => newGuard(g, i));
     return S;
@@ -201,7 +204,7 @@
     return {
       id: i, type: g.type, cfg: T.GUARD_TYPES[g.type], route: g.route, wait: g.wait == null ? 1.2 : g.wait, look: g.look || 0.9,
       x: p[0], z: p[1], dir: g.dir != null ? g.dir : 0, wp: 1 % g.route.length, waitT: 0, sweep: 0,
-      state: 'calm', meter: 0, seen: false, target: null, path: null, pathT: 0, searchT: 0, lastSeen: null, home: null
+      state: 'calm', meter: 0, seen: false, target: null, path: null, pathT: 0, searchT: 0, lastSeen: null, home: null, outT: 0, noticed: false
     };
   }
 
@@ -209,7 +212,8 @@
     const P = S.player;
     P.x = S.checkpoint.x; P.z = S.checkpoint.z; P.stance = 'stand'; P.moving = 0; P.running = false;
     S.guards = S.L.guards.map((g, i) => newGuard(g, i));
-    S.status = 'play'; S.caughtT = 0;
+    S.status = 'play'; S.caughtT = 0; S.subdue = null;
+    S.lights = (S.L.searchlights || []).map(() => ({ meter: 0, lit: false }));
     S.events.push({ t: 'respawn' });
   };
 
@@ -228,6 +232,39 @@
     P.stance = s; S.events.push({ t: 'stance', s }); return true;
   };
 
+  // ---------- التخدير من ورا ----------
+  // يقرب من الحارس من وراه (والحارس ما شافه ومو في إنذار) ← يخدّره. الثقيل ياخذ وقت أطول.
+  T.subdueTarget = function (S) {
+    const P = S.player;
+    if (S.status !== 'play' || S.subdue || P.stance === 'crawl') return null;
+    let best = null, bd = 99;
+    for (const g of S.guards) {
+      if (g.state === 'alert' || g.state === 'out' || g.seen) continue;
+      const d = len(P.x - g.x, P.z - g.z);
+      if (d > T.SUBDUE_DIST + g.cfg.r * 0.5 || d >= bd) continue;
+      const behind = Math.abs(angDiff(g.dir, Math.atan2(P.x - g.x, P.z - g.z))) > 1.95;
+      if (behind) { best = g; bd = d; }
+    }
+    return best;
+  };
+  T.startSubdue = function (S) {
+    const g = T.subdueTarget(S); if (!g) return false;
+    S.subdue = { g: g.id, t: 0, need: g.type === 'heavy' ? 1.3 : 0.7 };
+    S.player.dir = Math.atan2(g.x - S.player.x, g.z - S.player.z);
+    S.events.push({ t: 'subdue_start', g: g.id });
+    return true;
+  };
+  function updateSubdue(S, dt) {
+    const sd = S.subdue, g = S.guards[sd.g];
+    sd.t += dt;
+    if (!g || g.state === 'alert') { S.subdue = null; return; }
+    if (sd.t >= sd.need) {
+      g.state = 'out'; g.outT = T.OUT_TIME; g.meter = 0; g.target = null; g.path = null; g.noticed = false;
+      S.subdue = null; S.subdued = (S.subdued || 0) + 1;
+      S.events.push({ t: 'subdued', g: g.id });
+    }
+  }
+
   T.canInteract = function (S) {
     const o = S.L.objective, P = S.player;
     return S.status === 'play' && !S.objectiveTaken && len(P.x - o.x, P.z - o.z) < 1.9;
@@ -244,12 +281,11 @@
     const dx = P.x - g.x, dz = P.z - g.z, d = len(dx, dz);
     const range = g.cfg.range * st.range * (g.state === 'alert' ? 1.25 : 1);
     if (d > range) return false;
-    const close = d < 1.3 && P.stance !== 'crawl';
-    if (!close) {
-      const a = Math.atan2(dx, dz);
-      const fov = g.cfg.fov * (g.state === 'alert' ? 1.3 : 1);
-      if (Math.abs(angDiff(g.dir, a)) > fov * Math.PI / 360) return false;
-    }
+    // قريب جداً يحس فيه حتى لو على طرف عينه — بس مو من وراه (عشان التخدير)
+    const off = Math.abs(angDiff(g.dir, Math.atan2(dx, dz)));
+    const close = d < 1.3 && P.stance !== 'crawl' && off < 1.7;
+    const fov = g.cfg.fov * (g.state === 'alert' ? 1.3 : 1);
+    if (!close && off > fov * Math.PI / 360) return false;
     return !blocked(S.L.obstacles, g.x, g.z, T.EYE, P.x, P.z, st.h);
   };
 
@@ -281,10 +317,42 @@
       return;
     }
     if (S.status !== 'play') return;
-    updatePlayer(S, input || {}, dt);
+    if (S.subdue) updateSubdue(S, dt); else updatePlayer(S, input || {}, dt);
     for (const g of S.guards) updateGuard(S, g, dt);
+    if (S.status === 'play') updateLights(S, dt);
     checkZones(S);
   };
+
+  // ---------- الكشافات الضوئية ----------
+  // بقعة ضوء تمسح الأرض من مصدر عالي. إذا وقف ذيبان فيها مكشوف (مو ورا شيء يحجب الضوء) يمتلي العداد،
+  // وإذا امتلى ينذر أقرب حارسين ويرسلهم لمكانه.
+  T.lightPos = function (S, l) {
+    const t = S.time * l.speed + (l.phase || 0);
+    return [l.cx + Math.sin(t) * l.ax, l.cz + Math.sin(t * 0.73 + 1.1) * l.az];
+  };
+  T.inLight = function (S, l) {
+    const P = S.player, [lx, lz] = T.lightPos(S, l);
+    if (len(P.x - lx, P.z - lz) > l.r) return false;
+    return !blocked(S.L.obstacles, l.sx, l.sz, l.sh, P.x, P.z, T.STANCES[P.stance].h);
+  };
+  function updateLights(S, dt) {
+    (S.L.searchlights || []).forEach((l, i) => {
+      const st = S.lights[i], lit = T.inLight(S, l);
+      st.lit = lit;
+      if (lit) st.meter = Math.min(1, st.meter + dt * 1.7 * T.STANCES[S.player.stance].vis);
+      else st.meter = Math.max(0, st.meter - dt * 0.7);
+      if (st.meter >= 1) {
+        st.meter = 0.35;
+        const P = S.player;
+        S.events.push({ t: 'spotted', light: i });
+        S.guards.filter(g => g.state !== 'out').sort((a, b) => len(a.x - P.x, a.z - P.z) - len(b.x - P.x, b.z - P.z)).slice(0, 2).forEach(g => {
+          const was = g.state;
+          g.state = 'alert'; g.meter = 1; g.target = [P.x, P.z]; g.lastSeen = [P.x, P.z]; g.path = null; g.searchT = 0;
+          if (was !== 'alert') S.events.push({ t: 'alert', g: g.id, why: 'light' });
+        });
+      }
+    });
+  }
 
   function updatePlayer(S, inp, dt) {
     const P = S.player, st = T.STANCES[P.stance];
@@ -306,7 +374,7 @@
       P.noiseT = 0.45;
       S.events.push({ t: 'noise', x: P.x, z: P.z, r: T.NOISE_RUN });
       for (const g of S.guards) {
-        if (g.state === 'alert') continue;
+        if (g.state === 'alert' || g.state === 'out') continue;
         if (len(g.x - P.x, g.z - P.z) < T.NOISE_RUN) hear(S, g, P.x, P.z);
       }
     }
@@ -348,7 +416,21 @@
 
   function updateGuard(S, g, dt) {
     const P = S.player;
+    if (g.state === 'out') {
+      g.seen = false; g.outT -= dt;
+      if (g.outT <= 0) wake(S, g);
+      return;
+    }
+    if (S.subdue && S.subdue.g === g.id) { g.seen = false; return; } // ينخدّر الحين
     g.seen = T.canSee(S, g);
+    // يشوف زميله طايح؟ يروح له
+    if (g.state !== 'alert') for (const o of S.guards) {
+      if (o.state !== 'out' || o.noticed) continue;
+      if (seesPoint(S, g, o.x, o.z, 0.4)) {
+        o.noticed = true; g.meter = Math.max(g.meter, 0.6); g.state = 'suspicious'; g.target = [o.x, o.z]; g.path = null; g.searchT = 0;
+        S.events.push({ t: 'body', g: g.id, body: o.id });
+      }
+    }
     const dP = len(P.x - g.x, P.z - g.z);
     if (g.seen) {
       const range = g.cfg.range * T.STANCES[P.stance].range;
@@ -389,6 +471,7 @@
     if (g.state === 'suspicious') {
       if (g.seen) { turn(g, Math.atan2(P.x - g.x, P.z - g.z), dt); return; } // يوقف ويتأمل
       const arrived = moveAlong(S, g, g.cfg.speed * 0.9, dt);
+      if (arrived) for (const o of S.guards) if (o.state === 'out' && o.noticed && len(o.x - g.x, o.z - g.z) < 1.8) { wake(S, o); g.meter = Math.max(g.meter, 0.7); }
       if (arrived) {
         g.searchT += dt; g.dir += Math.sin(S.time * 1.6) * dt * 1.6;
         g.meter = Math.max(0, g.meter - 0.12 * dt);
@@ -411,6 +494,17 @@
     if (moveAlong(S, g, g.cfg.speed, dt)) { g.wp = (g.wp + 1) % g.route.length; g.waitT = g.wait; g.sweep = 0; g.target = null; }
   }
 
+  function seesPoint(S, g, x, z, h) {
+    const dx = x - g.x, dz = z - g.z, d = len(dx, dz);
+    if (d > g.cfg.range) return false;
+    if (Math.abs(angDiff(g.dir, Math.atan2(dx, dz))) > g.cfg.fov * Math.PI / 360) return false;
+    return !blocked(S.L.obstacles, g.x, g.z, T.EYE, x, z, h);
+  }
+  function wake(S, g) {
+    g.state = 'suspicious'; g.meter = 0.5; g.outT = 0; g.target = [g.x, g.z]; g.path = null; g.searchT = 0;
+    S.events.push({ t: 'woke', g: g.id });
+  }
+
   function caught(S, g) {
     S.status = 'caught'; S.caughtT = 0; S.catches++;
     S.events.push({ t: 'caught', g: g.id });
@@ -430,7 +524,8 @@
 
   T.alertLevel = function (S) {
     let lv = 0, meter = 0;
-    for (const g of S.guards) { lv = Math.max(lv, g.state === 'alert' ? 2 : g.state === 'suspicious' ? 1 : 0); meter = Math.max(meter, g.meter); }
+    for (const g of S.guards) { if (g.state === 'out') continue; lv = Math.max(lv, g.state === 'alert' ? 2 : g.state === 'suspicious' ? 1 : 0); meter = Math.max(meter, g.meter); }
+    for (const l of S.lights || []) meter = Math.max(meter, l.meter);
     return { level: lv, meter };
   };
 

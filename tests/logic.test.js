@@ -121,3 +121,54 @@ test('المهمة الأولى: الحراس يشتغلون دقيقتين بد
   run(S, 120);
   for (const g of S.guards) { assert.ok(Number.isFinite(g.x) && Number.isFinite(g.z)); assert.ok(Math.abs(g.x) < 20 && Math.abs(g.z) < 22); }
 });
+
+test('الكشاف الضوئي: إذا وقف في البقعة مكشوف ينذر الحراس', () => {
+  const lv = testLevel({ guards: [{ type: 'heavy', route: [[-12, -12]], dir: Math.PI }], searchlights: [{ sx: 0, sz: -14, sh: 10, cx: 0, cz: 5, ax: 0, az: 0, r: 2.5, speed: 0 }] });
+  const S = T.newGame(lv); S.player.x = 0; S.player.z = 5;
+  for (let t = 0; t < 1.5 && !S.events.some(e => e.t === 'spotted'); t += DT) T.update(S, {}, DT);
+  assert.ok(S.events.some(e => e.t === 'spotted'));
+  assert.strictEqual(S.guards[0].state, 'alert');
+});
+
+test('الكشاف الضوئي: الصخرة العالية تحجب الضوء', () => {
+  const lv = testLevel({ guards: [], obstacles: [{ kind: 'rock', x: 0, z: 4, w: 3, d: 1, h: 2.2 }], searchlights: [{ sx: 0, sz: -14, sh: 10, cx: 0, cz: 5, ax: 0, az: 0, r: 2.5, speed: 0 }] });
+  const S = T.newGame(lv); S.player.x = 0; S.player.z = 5.0;
+  run(S, 3);
+  assert.strictEqual(S.lights[0].meter, 0);
+});
+
+test('المهمة الأولى: الأغراض الجديدة ما تسكّر الطريق، والحراس يمرون من البوابة', () => {
+  const L = T.makeLevel(LEVEL1);
+  assert.ok(T.playerReachable(L, L.start, L.checkpoints[0]));
+  assert.ok(T.playerReachable(L, L.checkpoints[0], L.checkpoints[1]));
+  assert.ok(T.playerReachable(L, L.checkpoints[1], L.objective));
+  assert.ok(T.findPath(L, 0, -6, 0, -12), 'البوابة مفتوحة للحراس');
+});
+
+test('التخدير: من ورا الحارس ينجح، والحارس ينام وبعدين يصحى مشتبه', () => {
+  const S = T.newGame(testLevel()); // الحارس عند (0,0) يطالع جنوب
+  S.player.x = 0; S.player.z = -1.1; // وراه
+  run(S, 0.1);
+  assert.ok(T.subdueTarget(S), 'يقدر يخدّره');
+  assert.ok(T.startSubdue(S));
+  run(S, 1);
+  assert.strictEqual(S.guards[0].state, 'out');
+  S.player.z = -14;
+  run(S, T.OUT_TIME + 1);
+  assert.strictEqual(S.guards[0].state, 'suspicious', 'صحى');
+});
+
+test('التخدير: ما ينفع من قدام الحارس', () => {
+  const S = T.newGame(testLevel()); S.player.x = 0; S.player.z = 1.1;
+  run(S, 0.05);
+  assert.strictEqual(T.subdueTarget(S), null);
+});
+
+test('التخدير: الحارس الثاني إذا شاف زميله طايح يروح يتحقق', () => {
+  const S = T.newGame(testLevel({ guards: [{ type: 'scout', route: [[0, 0]], dir: 0, look: 0 }, { type: 'tech', route: [[0, -6]], dir: 0, look: 0 }] }));
+  S.player.x = 0; S.player.z = 13;
+  S.guards[0].state = 'out'; S.guards[0].outT = 30;
+  run(S, 0.5);
+  assert.strictEqual(S.guards[1].state, 'suspicious');
+  assert.ok(S.events.some(e => e.t === 'body') || S.guards[0].noticed);
+});

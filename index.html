@@ -25,7 +25,9 @@ html,body{height:100%;margin:0;overflow:hidden;position:fixed;inset:0;background
   -webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:none;overscroll-behavior:none}
 #c{position:fixed;inset:0;width:100%;height:100%;display:block}
 #vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(120% 95% at 50% 50%,rgba(0,0,0,0) 55%,rgba(0,0,0,.45) 100%)}
-#flash{position:fixed;inset:0;pointer-events:none;opacity:0;transition:opacity .25s;box-shadow:inset 0 0 120px 30px var(--alert)}
+#flash{position:fixed;inset:0;pointer-events:none;opacity:0;transition:opacity .25s;box-shadow:inset 0 0 70px 4px rgba(255,60,40,.75)}
+#flash.on{animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.45}}
 #flash.on{opacity:1}
 
 /* أعلى الشاشة */
@@ -84,6 +86,18 @@ html,body{height:100%;margin:0;overflow:hidden;position:fixed;inset:0;background
 #rotate svg{width:70px;height:70px;animation:rot 2s ease-in-out infinite}
 @keyframes rot{0%,30%{transform:rotate(0)}60%,100%{transform:rotate(-90deg)}}
 #fps{position:fixed;bottom:2px;left:50%;transform:translateX(-50%);font:10px monospace;color:rgba(255,255,255,.3);pointer-events:none}
+/* اللقطة الافتتاحية: شريطين سينمائية وعنوان المهمة */
+#bars i{position:fixed;left:0;right:0;height:0;background:#000;z-index:15;transition:height .6s ease}
+#bars i:first-child{top:0} #bars i:last-child{bottom:0}
+body.intro #bars i{height:11vh}
+#card{position:fixed;right:calc(40px + var(--sr));bottom:16vh;z-index:16;opacity:0;transition:opacity .8s;pointer-events:none;text-align:right}
+body.intro #card{opacity:1;transition-delay:.6s}
+#card .ct{font-size:40px;line-height:1.1;text-shadow:0 2px 14px rgba(0,0,0,.8)}
+#card .cp{font-size:14px;color:var(--teal);letter-spacing:1px;margin-top:4px}
+#skip{position:fixed;inset:0;z-index:17;display:none;align-items:flex-start;justify-content:center;padding-top:calc(11vh + 10px);font-size:12px;color:rgba(255,255,255,.45)}
+body.intro #skip{display:flex}
+body.intro #top,body.intro #radar,body.intro #radarLbl,body.intro #pads,body.intro #stickBase{display:none}
+#act.sub{border-color:#8ab4ff;color:#8ab4ff;box-shadow:0 0 18px rgba(138,180,255,.5);background:conic-gradient(rgba(138,180,255,.45) calc(var(--p,0)*360deg),var(--glass) 0)}
 body.ui-off #top,body.ui-off #radar,body.ui-off #radarLbl,body.ui-off #pads,body.ui-off #stickBase{display:none}
 </style>
 </head>
@@ -97,14 +111,14 @@ body.ui-off #top,body.ui-off #radar,body.ui-off #radarLbl,body.ui-off #pads,body
   <div id="state"><div id="pill">هادئ</div><div id="meter"><i></i></div></div>
 </div>
 <canvas id="radar" width="248" height="248"></canvas>
-<div id="radarLbl">كاشف الأثر</div>
+
 
 <div id="stickZone"></div>
 <div id="stickBase"><div id="stickKnob"></div></div>
 <div id="pads">
   <button class="pad" id="act" disabled aria-label="تفاعل">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11V5a1.5 1.5 0 0 1 3 0v5m0-1a1.5 1.5 0 0 1 3 0v2m0-1a1.5 1.5 0 0 1 3 0v4a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-2.7L4 15a1.5 1.5 0 0 1 2.5-1.6L9 16"/></svg>
-    <span>تفاعل</span>
+    <svg id="actIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11V5a1.5 1.5 0 0 1 3 0v5m0-1a1.5 1.5 0 0 1 3 0v2m0-1a1.5 1.5 0 0 1 3 0v4a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-2.7L4 15a1.5 1.5 0 0 1 2.5-1.6L9 16"/></svg>
+    <span id="actTxt">تفاعل</span>
   </button>
   <button class="pad" id="stance" aria-label="الوضعية">
     <svg id="stIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></svg>
@@ -119,14 +133,14 @@ body.ui-off #top,body.ui-off #radar,body.ui-off #radarLbl,body.ui-off #pads,body
   <img class="logo" src="assets/brand/aboden-splash.png" alt="عبودين قيمز · ABODEN GAMES">
   <div class="game">
     <div class="name">ذيبان<small>THEEBAN</small></div>
-    <div class="sub">المهمة الأولى: صدى الرمال · نموذج أولي</div>
+    <div class="sub">صدى الرمال</div>
     <button class="btn" id="startBtn">ابدأ</button>
-    <div class="hint">العصا يسار الشاشة: حركة خفيفة = مشي هادي، وللآخر = ركض (الركض يسمعونه).<br>زر الوضعية: واقف ← منحني ← زاحف. الصخور تغطيك واقف، والصناديق تغطيك منحني.</div>
+    <div class="hint">اختبي · انحني · خدّر من ورا</div>
   </div>
 </section>
 
 <section class="screen" id="won" hidden>
-  <h2>تم استعادة التسجيل</h2>
+  <h2>التسجيل معك</h2>
   <div class="story" id="story"></div>
   <div class="hint" id="stats"></div>
   <button class="btn ghost" id="againBtn">العب مرة ثانية</button>
@@ -137,10 +151,14 @@ body.ui-off #top,body.ui-off #radar,body.ui-off #radarLbl,body.ui-off #pads,body
   <div class="sub">لف الجوال بالعرض</div>
 </section>
 <div id="fps"></div>
+<div id="bars"><i></i><i></i></div>
+<div id="card"><div class="ct" id="cardTitle"></div><div class="cp" id="cardPlace"></div></div>
+<div id="skip">تخطي ›</div>
 
 <script src="lib/three.min.js"></script>
 <script src="js/logic.js"></script>
 <script src="js/level1.js"></script>
+<script src="js/fx.js"></script>
 <script src="js/world.js"></script>
 <script src="js/game.js"></script>
 </body>

@@ -2,7 +2,7 @@
 // موديلات الشخصيات تنركّب لاحقاً مكان الأجسام المؤقتة: makePlayer / makeGuard (انظر README).
 (function (root) {
   'use strict';
-  const THREE = root.THREE, TH = root.TH;
+  const THREE = root.THREE, TH = root.TH, FX = root.FX;
   const W = {};
 
   const COL = {
@@ -182,12 +182,12 @@
     renderer.setPixelRatio(Math.min(root.devicePixelRatio || 1, 2));
     renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(COL.sky);
-    scene.fog = new THREE.Fog(COL.fog, 26, 60);
-    const camera = new THREE.PerspectiveCamera(42, 1, 0.5, 200);
+    scene.fog = new THREE.Fog(0x1c1a20, 24, 72);
+    const camera = new THREE.PerspectiveCamera(42, 1, 0.5, 260);
+    const sky = FX.sky(scene);
 
     // إضاءة الليل: قمر بارد + سماء خفيفة
-    scene.add(new THREE.HemisphereLight(0x6d82a8, 0x2a2016, 0.9));
+    const hemi = new THREE.HemisphereLight(0x6d82a8, 0x2a2016, 0.9); scene.add(hemi);
     const moon = new THREE.DirectionalLight(0xa9c2ff, 0.75);
     moon.position.set(-8, 20, 6); moon.castShadow = true;
     moon.shadow.mapSize.set(1024, 1024);
@@ -205,14 +205,8 @@
       gp.setY(i, dune - 0.02);
     }
     gg.computeVertexNormals();
-    const ground = new THREE.Mesh(gg, new THREE.MeshLambertMaterial({ color: COL.sand, flatShading: true }));
+    const ground = new THREE.Mesh(gg, new THREE.MeshLambertMaterial({ color: 0xa8957c, map: FX.sandTexture() }));
     ground.receiveShadow = true; scene.add(ground);
-
-    // نجوم
-    const sp = []; const r0 = rng(7);
-    for (let i = 0; i < 500; i++) { const a = r0() * Math.PI * 2, e = 0.15 + r0() * 1.2; sp.push(Math.cos(a) * Math.cos(e) * 90, Math.sin(e) * 90, Math.sin(a) * Math.cos(e) * 90); }
-    const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
-    scene.add(new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xcfe0ff, size: 0.35, fog: false })));
 
     // العوائق
     const r = rng(42);
@@ -223,13 +217,19 @@
       else if (o.kind === 'ruin') m = ruinMesh(o, r);
       else if (o.kind === 'pipe') m = pipeMesh(o);
       else if (o.kind === 'tower') m = towerMesh(o, W);
-      else if (o.kind === 'fence') { m = box(o.w, 1.2, o.d, 0x2e2a25, o.x, 0.6, o.z); }
+      else if (FX.prop[o.kind]) m = FX.prop[o.kind](o);
       else { m = box(o.w, o.h, o.d, o.h < 2 ? COL.concreteDark : COL.concrete, o.x, o.y0 + o.h / 2, o.z); }
       scene.add(m);
     }
 
     // إنارة الموقع
-    for (const [x, z, c] of [[-3, -9.2, 0xffd9a0], [3, -9.2, 0xffd9a0], [-4, -14, 0xbfe8ff], [4, -20, 0xbfe8ff], [-11, -3, 0xffd9a0], [12, 4, 0xffd9a0]]) scene.add(lampPost(x, z, c));
+    // أعمدة إنارة: صوديوم برتقالي عند البوابة والخرابات، وأبيض بارد حول البرج (بعضها يرمش)
+    const lamps = [[-3.2, -9.0, 0xffb060, 0], [3.2, -9.0, 0xffb060, 1], [-4.5, -13.6, 0xbfe2ff, 0], [4.6, -20.9, 0xbfe2ff, 0], [-11.5, -3.2, 0xffb060, 1], [12.6, 4.2, 0xffb060, 0], [-17, 6, 0xffb060, 0]]
+      .map(([x, z, c, f]) => FX.lamp(scene, x, z, c, f));
+    const sls = (L.searchlights || []).map(l => FX.searchlight(scene, l));
+    const beacons = [[-2.1, 3.15, -10], [2.1, 3.15, -10], [1.5, 2.85, -14.9], [17.6, 6.85, 19.6]].map(([x, y, z]) => FX.beacon(scene, x, y, z));
+    const dust = FX.dust(scene);
+    const flick = []; scene.traverse(o => { if (o.userData && o.userData.flick) flick.push(o.userData.flick); });
 
     // الهدف: جهاز التسجيل على صندوق صغير، وحلقة تنبض
     const objG = new THREE.Group();
@@ -249,7 +249,7 @@
     const guards = [], cones = [];
     const RAYS = 22;
 
-    const ctx = { renderer, scene, camera, moon, player, guards, cones, objG, ring, rec, cps, rings: [], RAYS, camPos: new THREE.Vector3(), t: 0 };
+    const ctx = { renderer, scene, camera, moon, hemi, sky, lamps, sls, beacons, dust, flick, player, guards, cones, objG, ring, rec, cps, rings: [], RAYS, camPos: new THREE.Vector3(), lookAt: new THREE.Vector3(), t: 0, alarm: 0, shake: 0, intro: 0 };
     W.syncGuards(ctx, S);
     W.resize(ctx);
     W.snapCamera(ctx, S);
@@ -281,7 +281,7 @@
   }
   W.snapCamera = function (ctx, S) { camTarget(ctx, S, ctx.camPos); ctx.camera.position.copy(ctx.camPos); ctx.camera.lookAt(S.player.x, 0, S.player.z - 1.2); };
 
-  const tmp = new THREE.Vector3();
+  const tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3();
   W.render = function (ctx, S, dt) {
     ctx.t += dt;
     const P = S.player, t = ctx.t;
@@ -303,11 +303,17 @@
     // الحراس
     W.syncGuards(ctx, S);
     S.guards.forEach((g, i) => {
-      const m = ctx.guards[i]; m.position.set(g.x, 0, g.z); m.rotation.y = g.dir;
-      m.userData.pose.position.y = Math.abs(Math.sin(t * 7 + i)) * 0.04;
+      const m = ctx.guards[i], gp = m.userData.pose, out = g.state === 'out'; m.position.set(g.x, 0, g.z); m.rotation.y = g.dir;
+      const held = S.subdue && S.subdue.g === i;
+      const lyX = out ? Math.PI / 2 : 0;
+      gp.rotation.x += (lyX - gp.rotation.x) * Math.min(1, dt * 8);
+      gp.rotation.z = held ? Math.sin(t * 38) * 0.12 : 0;
+      gp.position.y = out ? 0.32 : Math.abs(Math.sin(t * 7 + i)) * 0.04;
+      gp.position.z = 0;
       const ic = m.userData.icon;
       ic.visible = g.state !== 'calm';
-      if (ic.visible) { ic.material.map = g.state === 'alert' ? iconTex('!', '#ff4d3d') : iconTex('?', '#f2c23a'); ic.position.y = 2.35 + Math.sin(t * 5) * 0.06; }
+      if (ic.visible) { ic.material.map = out ? iconTex('Z', '#8ab4ff') : g.state === 'alert' ? iconTex('!', '#ff4d3d') : iconTex('?', '#f2c23a'); ic.position.y = (out ? 1.0 : 2.35) + Math.sin(t * (out ? 2 : 5)) * 0.08; }
+      ctx.cones[i].visible = !out;
       // مخروط الرؤية
       const c = ctx.cones[i], pts = TH.visionFan(S, g, ctx.RAYS), pos = c.geometry.attributes.position;
       pos.setXYZ(0, g.x, 0.05, g.z);
@@ -330,11 +336,42 @@
       if (f >= 1) { ctx.scene.remove(r); r.geometry.dispose(); r.material.dispose(); ctx.rings.splice(i, 1); }
     }
 
-    // الكاميرا والظل يتبعون ذيبان
-    camTarget(ctx, S, tmp);
+    // الأجواء: الإنذار يلوّن المكان بالأحمر ويشغل الأضواء الدوارة
+    const lvl = TH.alertLevel(S).level;
+    ctx.alarm += ((lvl === 2 ? 1 : 0) - ctx.alarm) * Math.min(1, dt * 3);
+    const al = ctx.alarm;
+    ctx.hemi.color.setRGB(0.43 + al * 0.18, 0.51 - al * 0.14, 0.66 - al * 0.22);
+    ctx.scene.fog.color.setRGB(0.11 + al * 0.14, 0.10 - al * 0.03, 0.125 - al * 0.04);
+    ctx.sky.sky.material.uniforms.uAlarm.value = al;
+    ctx.beacons.forEach(b => FX.updateBeacon(b, al, t, dt));
+    ctx.sls.forEach((o, i) => FX.updateSearchlight(o, S, i));
+    for (const L of ctx.lamps) if (L.flicker) {
+      const f = Math.sin(t * 13 + L.seed) > 0.93 || Math.sin(t * 2.3 + L.seed) > 0.985 ? 0.15 : 1;
+      L.beam.material.uniforms.uStr.value = 0.55 * f; L.pool.material.opacity = 0.42 * f; L.glow.material.opacity = 0.9 * f;
+    }
+    for (const [lamp, gl] of ctx.flick) { const on = Math.random() > 0.08; lamp.visible = on; gl.material.opacity = on ? 0.6 + Math.random() * 0.3 : 0; }
+    FX.updateDust(ctx.dust, P.x, P.z, dt, t);
+
+    // الكاميرا تتبع ذيبان (وتقرب شوي وهو منحني)، تهتز مع الإنذار، ولقطة افتتاحية فوق الموقع
+    const zoom = P.stance === 'crawl' ? 0.88 : P.stance === 'crouch' ? 0.94 : 1;
+    ctx.zoom = (ctx.zoom || 1) + (zoom - (ctx.zoom || 1)) * Math.min(1, dt * 3);
+    camTarget(ctx, S, tmp); tmp.y *= ctx.zoom; tmp.z = P.z + (tmp.z - P.z) * ctx.zoom;
     ctx.camPos.lerp(tmp, Math.min(1, dt * 4));
-    ctx.camera.position.copy(ctx.camPos);
-    ctx.camera.lookAt(ctx.camPos.x, 0, ctx.camPos.z - 9 * (ctx.camDist || 1) - 1.2);
+    const look = tmp2.set(ctx.camPos.x, 0, ctx.camPos.z - (tmp.z - P.z) - 1.2);
+    if (ctx.intro > 0) {
+      const k = 1 - ctx.intro, e = k * k * (3 - 2 * k);
+      // من فوق البرج ← فوق الساحة ← ذيبان
+      const a = [6, 11, -27], b = [-4, 24, 2], c = [ctx.camPos.x, ctx.camPos.y, ctx.camPos.z];
+      const q = (i) => (1 - e) * (1 - e) * a[i] + 2 * (1 - e) * e * b[i] + e * e * c[i];
+      ctx.camera.position.set(q(0), q(1), q(2));
+      const la = [0, 5, -17], lc = [look.x, 0, look.z];
+      ctx.camera.lookAt(la[0] + (lc[0] - la[0]) * e, la[1] + (lc[1] - la[1]) * e, la[2] + (lc[2] - la[2]) * e);
+    } else {
+      ctx.camera.position.copy(ctx.camPos);
+      if (ctx.shake > 0.001) { ctx.camera.position.x += (Math.random() - 0.5) * ctx.shake; ctx.camera.position.y += (Math.random() - 0.5) * ctx.shake * 0.6; ctx.shake *= Math.pow(0.02, dt); }
+      ctx.camera.lookAt(look);
+    }
+    ctx.sky.moon.position.set(ctx.camera.position.x - 42, 46, ctx.camera.position.z - 70);
     ctx.moon.position.set(P.x - 8, 20, P.z + 6); ctx.moon.target.position.set(P.x, 0, P.z); ctx.moon.target.updateMatrixWorld();
 
     ctx.renderer.render(ctx.scene, ctx.camera);

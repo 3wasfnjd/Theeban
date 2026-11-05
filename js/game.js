@@ -18,6 +18,40 @@
     g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol || 0.15, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     o.connect(g).connect(a.destination); o.start(t0); o.stop(t0 + dur + 0.05);
   }
+  // أجواء صوتية: ريح، طنين منخفض يزيد مع التوتر، صفارة إنذار، ونبض قلب إذا حارس قريب مشتبه
+  const AMB = { on: false };
+  function startAmbience() {
+    const a = audio(); if (!a || AMB.on) return; AMB.on = true;
+    const buf = a.createBuffer(1, a.sampleRate * 2, a.sampleRate), d = buf.getChannelData(0);
+    let last = 0; for (let i = 0; i < d.length; i++) { last = last * 0.98 + (Math.random() * 2 - 1) * 0.02; d[i] = last * 6; }
+    const noise = a.createBufferSource(); noise.buffer = buf; noise.loop = true;
+    const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 500; bp.Q.value = 0.7;
+    const wg = a.createGain(); wg.gain.value = 0.22;
+    noise.connect(bp).connect(wg).connect(a.destination); noise.start();
+    const lfo = a.createOscillator(), lg = a.createGain(); lfo.frequency.value = 0.13; lg.gain.value = 260; lfo.connect(lg).connect(bp.frequency); lfo.start();
+    const drone = a.createGain(); drone.gain.value = 0.0; drone.connect(a.destination);
+    const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 180; lp.connect(drone);
+    for (const f of [55, 55.7, 82.4]) { const o = a.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.connect(lp); o.start(); }
+    const siren = a.createOscillator(), sg = a.createGain(), slfo = a.createOscillator(), slg = a.createGain();
+    siren.type = 'square'; siren.frequency.value = 720; slfo.frequency.value = 0.8; slg.gain.value = 180; slfo.connect(slg).connect(siren.frequency);
+    const sf = a.createBiquadFilter(); sf.type = 'lowpass'; sf.frequency.value = 1400;
+    sg.gain.value = 0; siren.connect(sf).connect(sg).connect(a.destination); siren.start(); slfo.start();
+    Object.assign(AMB, { wind: wg, drone, lp, siren: sg, beatT: 0 });
+  }
+  function updateAmbience(dt, level, near) {
+    if (!AMB.on || !ac) return;
+    const t = ac.currentTime;
+    AMB.drone.gain.setTargetAtTime(level === 2 ? 0.07 : level === 1 ? 0.05 : 0.025, t, 0.6);
+    AMB.lp.frequency.setTargetAtTime(level === 2 ? 420 : level === 1 ? 260 : 170, t, 0.6);
+    AMB.siren.gain.setTargetAtTime(level === 2 ? 0.035 : 0, t, 0.3);
+    AMB.wind.gain.setTargetAtTime(level === 2 ? 0.12 : 0.22, t, 1);
+    if (level >= 1 && near < 9) {
+      AMB.beatT -= dt;
+      if (AMB.beatT <= 0) { AMB.beatT = level === 2 ? 0.42 : 0.75; tone(58, 0.12, 'sine', 0.3, 40); tone(52, 0.12, 'sine', 0.22, 38, 0.16); }
+    }
+  }
+  function muteAmbience() { if (AMB.on && ac) { const t = ac.currentTime; AMB.drone.gain.setTargetAtTime(0, t, 0.3); AMB.siren.gain.setTargetAtTime(0, t, 0.2); } }
+
   const SFX = {
     sus: () => { tone(520, 0.14, 'triangle', 0.12); tone(700, 0.18, 'triangle', 0.12, 0, 0.13); },
     alert: () => { tone(880, 0.12, 'square', 0.1); tone(660, 0.12, 'square', 0.1, 0, 0.12); tone(880, 0.2, 'square', 0.1, 0, 0.24); },
@@ -25,7 +59,9 @@
     cp: () => { tone(660, 0.1, 'sine', 0.1); tone(990, 0.2, 'sine', 0.1, 0, 0.1); },
     radio: () => tone(1800, 0.05, 'square', 0.04),
     won: () => { [523, 659, 784].forEach((f, i) => tone(f, 0.35, 'sine', 0.1, 0, i * 0.15)); },
-    step: () => tone(90 + Math.random() * 30, 0.05, 'triangle', 0.03)
+    step: () => tone(90 + Math.random() * 30, 0.05, 'triangle', 0.03),
+    subdue: () => { tone(200, 0.08, 'square', 0.08); tone(1400, 0.25, 'sine', 0.05, 300, 0.05); },
+    spotted: () => { tone(1200, 0.08, 'square', 0.1); tone(1200, 0.08, 'square', 0.1, 0, 0.12); tone(900, 0.3, 'sawtooth', 0.08, 0, 0.24); }
   };
 
   // ---------- الواجهة ----------
@@ -35,6 +71,8 @@
     crawl: '<circle cx="19" cy="13" r="2"/><path d="M17 14H8l-4 4M8 14l3 4M13 14l2 4"/>'
   };
   const STATE_TXT = ['هادئ', 'مشتبه', 'إنذار'];
+  const ICON_HAND = '<path d="M9 11V5a1.5 1.5 0 0 1 3 0v5m0-1a1.5 1.5 0 0 1 3 0v2m0-1a1.5 1.5 0 0 1 3 0v4a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-2.7L4 15a1.5 1.5 0 0 1 2.5-1.6L9 16"/>';
+  const ICON_SUB = '<path d="m14 4 6 6M17 7l-9 9-3 1 1-3 9-9M4 20l3-3"/>';
   let radioT = 0, toastT = 0, lastLevel = 0;
 
   function showRadio(who, text) { $('radioWho').textContent = who + ':'; $('radioTxt').textContent = text; $('radio').classList.add('on'); radioT = 4 + text.length * 0.05; SFX.radio(); }
@@ -47,7 +85,12 @@
     $('flash').classList.toggle('on', a.level === 2 || S.status === 'caught');
     const st = S.player.stance;
     if ($('stance').dataset.s !== st) { $('stance').dataset.s = st; $('stIcon').innerHTML = ICONS[st]; $('stTxt').textContent = TH.STANCES[st].name; }
-    const can = TH.canInteract(S); $('act').disabled = !can; $('act').classList.toggle('act', can);
+    const can = TH.canInteract(S), sub = !can && TH.subdueTarget(S), busy = !!S.subdue;
+    const mode = can ? 'take' : sub || busy ? 'subdue' : 'none';
+    const act = $('act');
+    if (act.dataset.m !== mode) { act.dataset.m = mode; $('actTxt').textContent = mode === 'subdue' ? 'تخدير' : 'تفاعل'; $('actIcon').innerHTML = mode === 'subdue' ? ICON_SUB : ICON_HAND; }
+    act.disabled = mode === 'none'; act.classList.toggle('act', mode !== 'none'); act.classList.toggle('sub', mode === 'subdue');
+    act.style.setProperty('--p', busy ? Math.min(1, S.subdue.t / S.subdue.need) : 0);
     if (radioT > 0 && (radioT -= dt) <= 0) $('radio').classList.remove('on');
     if (toastT > 0 && (toastT -= dt) <= 0) $('toast').classList.remove('on');
     drawRadar();
@@ -79,12 +122,16 @@
     for (const e of S.events) {
       if (e.t === 'radio') showRadio(e.who, e.text);
       else if (e.t === 'suspicious' && e.why !== 'radio') SFX.sus();
-      else if (e.t === 'alert') { SFX.alert(); toast('انكشفت!', 1.2); }
-      else if (e.t === 'caught') { SFX.caught(); toast('انمسكت… ترجع لآخر نقطة حفظ', 1.6); }
+      else if (e.t === 'alert') { SFX.alert(); if (e.why !== 'light') toast('انكشفت!', 1.2); ctx.shake = Math.max(ctx.shake, 0.35); }
+      else if (e.t === 'caught') { SFX.caught(); toast('انمسكت', 1.4); ctx.shake = 0.7; }
       else if (e.t === 'checkpoint') { SFX.cp(); toast('نقطة حفظ', 1.2); }
       else if (e.t === 'noise') W.noiseRing(ctx, e.x, e.z, e.r);
       else if (e.t === 'won') win();
       else if (e.t === 'lost') toast('ضيّعوك', 1.2);
+      else if (e.t === 'subdued') { SFX.subdue(); toast('نام الحارس', 1.1); }
+      else if (e.t === 'body') { SFX.sus(); showRadio('برق', 'شافوا الطايح!'); }
+      else if (e.t === 'woke') toast('صحى حارس', 1);
+      else if (e.t === 'spotted') { SFX.spotted(); toast('الضوء كشفك!', 1.2); ctx.shake = 0.5; }
     }
     S.events.length = 0;
     if (S.player.moving && S.player.stance === 'stand') { stepT -= dt; if (stepT <= 0) { stepT = S.player.running ? 0.28 : 0.5; SFX.step(); } }
@@ -111,14 +158,15 @@
   zone.addEventListener('pointerup', endStick); zone.addEventListener('pointercancel', endStick);
 
   function press(el, fn) { el.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); audio(); fn(); }); }
-  press($('stance'), () => { if (S && S.status === 'play') { const before = S.player.stance; if (TH.cycleStance(S) === before) toast('ما تقدر توقف هنا', 1); } });
-  press($('act'), () => S && TH.interact(S));
+  press($('stance'), () => { if (S && S.status === 'play' && introT <= 0) { const before = S.player.stance; if (TH.cycleStance(S) === before) toast('ما تقدر', 0.8); } });
+  press($('act'), () => { if (!S || introT > 0) return; if (!TH.interact(S)) TH.startSubdue(S); });
 
   doc.addEventListener('keydown', e => {
     keys[e.code] = true;
     if (!S || S.status !== 'play') return;
+    if (introT > 0) { if (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape') endIntro(); return; }
     if (e.code === 'KeyC' || e.code === 'Space') { TH.cycleStance(S); e.preventDefault(); }
-    if (e.code === 'KeyE' || e.code === 'Enter') TH.interact(S);
+    if (e.code === 'KeyE' || e.code === 'Enter' || e.code === 'KeyF') { if (!TH.interact(S)) TH.startSubdue(S); }
   });
   doc.addEventListener('keyup', e => { keys[e.code] = false; });
   function keyInput() {
@@ -136,11 +184,20 @@
     const dt = Math.min(0.05, (now - last) / 1000 || 0.016); last = now;
     T_step(dt);
   }
+  let introT = 0; const INTRO = 5.5;
+  function endIntro() { introT = 0; ctx.intro = 0; doc.body.classList.remove('intro'); doc.body.classList.remove('ui-off'); }
   function T_step(dt) {
+    if (introT > 0) {
+      introT -= dt; ctx.intro = Math.max(0, introT / INTRO); S.time += dt;
+      if (introT <= 0) endIntro();
+      W.render(ctx, S, dt); return;
+    }
     const k = keyInput();
     TH.update(S, k || input, dt);
     handleEvents(dt);
     updateHud(dt);
+    let near = 99; for (const g of S.guards) if (g.state !== 'calm' && g.state !== 'out') near = Math.min(near, Math.hypot(g.x - S.player.x, g.z - S.player.z));
+    updateAmbience(dt, TH.alertLevel(S).level, near);
     W.render(ctx, S, dt);
     fpsTick(dt);
   }
@@ -158,8 +215,11 @@
   function start() {
     audio();
     $('title').hidden = true; $('won').hidden = true;
-    doc.body.classList.remove('ui-off');
     newRun();
+    startAmbience();
+    // لقطة افتتاحية فوق الموقع (تنتخطى باللمس)
+    $('cardTitle').textContent = S.L.title.split(': ')[1] || S.L.title; $('cardPlace').textContent = S.L.place || '';
+    introT = INTRO; ctx.intro = 1; doc.body.classList.add('intro');
     running = true; last = performance.now(); requestAnimationFrame(frame);
   }
 
@@ -167,7 +227,7 @@
     SFX.won();
     const secs = Math.round((performance.now() - startedAt) / 1000);
     setTimeout(() => {
-      running = false;
+      running = false; muteAmbience();
       doc.body.classList.add('ui-off');
       for (const id of ['radio', 'toast', 'flash']) $(id).classList.remove('on'); radioT = toastT = 0;
       const st = $('story'); st.innerHTML = '';
@@ -175,12 +235,13 @@
         const p = doc.createElement('p'); p.textContent = line; p.style.animationDelay = (i * 1.3) + 's';
         if (line.startsWith('«')) p.className = 'q'; st.appendChild(p);
       });
-      $('stats').textContent = `الوقت: ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')} · مرات الإمساك: ${S.catches}`;
+      $('stats').textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')} · انمسكت ${S.catches} · خدّرت ${S.subdued || 0}`;
       $('won').hidden = false;
     }, 700);
   }
 
   $('startBtn').addEventListener('click', start);
+  $('skip').addEventListener('pointerdown', e => { e.preventDefault(); if (introT > 0) endIntro(); });
   $('againBtn').addEventListener('click', start);
   root.addEventListener('resize', () => ctx && W.resize(ctx));
   doc.addEventListener('visibilitychange', () => { if (!doc.hidden) last = performance.now(); });
@@ -189,5 +250,5 @@
   newRun(); W.render(ctx, S, 0.016);
 
   // للاختبارات الآلية فقط
-  root.__theeban = { get S() { return S; }, TH, start, step: T_step, input };
+  root.__theeban = { get S() { return S; }, TH, start, step: T_step, input, skipIntro: () => introT > 0 && endIntro() };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

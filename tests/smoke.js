@@ -43,7 +43,14 @@ function serve() {
   await page.screenshot({ path: path.join(OUT, 'shot-2-title.png') });
 
   await page.tap('#startBtn');
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(2600);
+  await page.screenshot({ path: path.join(OUT, 'shot-2b-intro.png') });
+  const intro = await page.evaluate(() => document.body.classList.contains('intro'));
+  intro ? ok('اللقطة الافتتاحية تشتغل') : fail('ما فيه لقطة افتتاحية');
+  await page.tap('#skip');
+  await page.waitForTimeout(400);
+  const introOff = await page.evaluate(() => !document.body.classList.contains('intro'));
+  introOff ? ok('اللمس يتخطى اللقطة') : fail('ما تخطى اللقطة');
   const hidden = await page.evaluate(() => document.getElementById('title').hidden);
   hidden ? ok('زر ابدأ يدخل اللعبة') : fail('شاشة البداية ما اختفت');
   const logoVisible = await page.evaluate(() => { const i = document.querySelector('img[src*="aboden"]'); return !!(i && i.offsetParent && getComputedStyle(i).visibility !== 'hidden'); });
@@ -67,9 +74,33 @@ function serve() {
   await page.waitForTimeout(400);
   await page.screenshot({ path: path.join(OUT, 'shot-4-crouch.png') });
 
+  // التخدير: نوقف ورا الحارس الثقيل (واقف في البوابة يطالع جنوب)
+  await page.evaluate(() => { const S = __theeban.S; S.player.stance = 'crouch'; const g = S.guards[1]; g.state = 'calm'; g.meter = 0; g.dir = 0; g.home = 0; S.player.x = g.x; S.player.z = g.z - 1.1; S.player.dir = 0; });
+  await page.waitForFunction(() => document.getElementById('act').dataset.m === 'subdue', null, { timeout: 8000 }).catch(() => {});
+  const subMode = await page.evaluate(() => document.getElementById('act').dataset.m);
+  subMode === 'subdue' ? ok('زر التخدير يطلع ورا الحارس') : fail('زر التخدير ما طلع: ' + subMode);
+  await page.tap('#act');
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: path.join(OUT, 'shot-4b-subdue.png') });
+  await page.waitForFunction(() => __theeban.S.guards[1].state === 'out', null, { timeout: 15000 }).catch(() => {});
+  const outSt = await page.evaluate(() => __theeban.S.guards[1].state);
+  outSt === 'out' ? ok('الحارس انخدّر ونام') : fail('حالة الحارس ' + outSt);
+  await page.screenshot({ path: path.join(OUT, 'shot-4c-asleep.png') });
+
+  // الكشاف الضوئي: نوقف ذيبان في بقعة ضوء البرج
+  await page.evaluate(() => { const S = __theeban.S, l = S.L.searchlights[0]; const [x, z] = __theeban.TH.lightPos(S, l); S.player.stance = 'stand'; S.player.x = x; S.player.z = z; });
+  await page.waitForTimeout(150);
+  await page.screenshot({ path: path.join(OUT, 'shot-4d-searchlight.png') });
+  await page.waitForFunction(() => __theeban.TH.alertLevel(__theeban.S).level === 2, null, { timeout: 15000 }).catch(() => {});
+  const spotted = await page.evaluate(() => __theeban.TH.alertLevel(__theeban.S).level);
+  spotted === 2 ? ok('الكشاف الضوئي ينذر الحراس') : fail('الكشاف الضوئي ما أنذر: ' + spotted);
+  await page.screenshot({ path: path.join(OUT, 'shot-4e-alarm.png') });
+  await page.evaluate(() => { const S = __theeban.S; S.L.searchlights.forEach(l => { l.speed = 0; l.cx = 60; }); __theeban.TH.resetToCheckpoint(S); });
+  await page.waitForTimeout(500);
+
   // نوديه قدام الكشاف عشان نشوف الإنذار والمخروط الأحمر
-  await page.evaluate(() => { const S = __theeban.S; S.player.stance = 'stand'; const g = S.guards[0]; S.player.x = g.x + Math.sin(g.dir) * 5; S.player.z = g.z + Math.cos(g.dir) * 5; });
-  await page.waitForTimeout(1800);
+  await page.evaluate(() => { const S = __theeban.S; S.player.stance = 'stand'; const g = S.guards[0]; g.x = 0; g.z = 7; g.dir = 0; g.waitT = 5; S.player.x = 0; S.player.z = 12; });
+  await page.waitForFunction(() => __theeban.TH.alertLevel(__theeban.S).level >= 1, null, { timeout: 15000 }).catch(() => {});
   const lvl = await page.evaluate(() => __theeban.TH.alertLevel(__theeban.S).level);
   lvl >= 1 ? ok('الحارس انتبه (المستوى ' + lvl + ')') : fail('الحارس ما انتبه');
   await page.screenshot({ path: path.join(OUT, 'shot-5-alert.png') });
