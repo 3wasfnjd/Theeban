@@ -106,6 +106,46 @@ body.intro #skip{display:flex}
 body.intro #top,body.intro #radar,body.intro #radarLbl,body.intro #pads,body.intro #stickBase{display:none}
 #act.sub{border-color:#8ab4ff;color:#8ab4ff;box-shadow:0 0 18px rgba(138,180,255,.5);background:conic-gradient(rgba(138,180,255,.45) calc(var(--p,0)*360deg),var(--glass) 0)}
 body.ui-off #top,body.ui-off #radar,body.ui-off #radarLbl,body.ui-off #pads,body.ui-off #stickBase{display:none}
+/* تبديل الأداة */
+#gasWrap{position:relative;align-self:flex-start;margin-bottom:60px} #gasWrap .pad.small{margin-bottom:0} #gasN{font-size:11px;white-space:nowrap}
+#cyc{position:absolute;top:-14px;inset-inline-start:-14px;width:34px;height:34px;border-radius:50%;border:1.5px solid var(--rim);background:var(--glass);color:var(--txt);font:700 15px var(--font);display:flex;align-items:center;justify-content:center;padding:0}
+#cyc[hidden]{display:none}
+/* سطر يومض ثانية ويختفي */
+#blink{position:fixed;left:50%;top:30%;transform:translateX(-50%);font-size:15px;color:var(--teal);letter-spacing:1px;opacity:0;pointer-events:none;z-index:13;text-shadow:0 0 12px rgba(63,208,196,.8)}
+#blink.on{animation:blk 1s steps(2) 1 forwards}
+@keyframes blk{0%{opacity:1}50%{opacity:.2}100%{opacity:0}}
+/* اختيار المهمة */
+#missions{display:flex;gap:8px;margin-top:4px}
+.mbtn{width:38px;height:38px;border-radius:50%;border:1.5px solid var(--rim);background:transparent;color:var(--txt);font:700 16px var(--font)}
+.mbtn.on{border-color:var(--teal);color:var(--teal)}
+#won .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+/* النهاية */
+#finale{z-index:22;transition:background 1.2s}
+#finale.cold{background:radial-gradient(90% 90% at 50% 50%,#0c1a20 0%,#03060a 100%)}
+#finale.warm{background:radial-gradient(70% 80% at 50% 45%,#5a3d16 0%,#170d04 70%,#060302 100%)}
+#finale.dawn{background:linear-gradient(#2a3550 0%,#c77b4a 70%,#f2c27a 100%)}
+#finText{max-width:640px;font-size:17px;line-height:1.9}
+#finText p{margin:4px 0;opacity:0;animation:fadein 1s ease forwards}
+#finText p.q{color:#ffd9a0;font-size:20px}
+#finale.cold #finText p.q{color:var(--teal)}
+#finText p.h{color:var(--teal);font-size:22px;margin-bottom:10px}
+#finTap{position:fixed;inset:0;background:transparent;border:0;z-index:1}
+#finTap::after{content:'المس للمتابعة ›';position:fixed;bottom:18px;left:50%;transform:translateX(-50%);font:12px var(--font);color:rgba(255,255,255,.4)}
+#finText,#choice,#credits,#finMap{position:relative;z-index:2}
+#finale [hidden]{display:none!important}
+#finText,#finMap{pointer-events:none}
+#finCanvas{position:fixed;inset:0;width:100%;height:100%;z-index:0}
+#finale.scene{background:#0b0603}
+#finale.scene #finText{position:fixed;left:50%;bottom:4vh;transform:translateX(-50%);width:min(640px,86vw);background:rgba(10,6,2,.62);border-radius:14px;padding:6px 18px;font-size:15px;line-height:1.85}
+#choice{display:flex;flex-direction:column;align-items:center;gap:14px}
+#choice .q{font-size:17px;color:rgba(233,238,242,.8);max-width:560px;line-height:1.9}
+#choice .opts{display:flex;gap:16px;flex-wrap:wrap;justify-content:center}
+.hold{font:700 16px var(--font);color:var(--txt);border:1.5px solid var(--teal);border-radius:16px;padding:14px 20px;width:min(270px,40vw);background:linear-gradient(90deg,rgba(63,208,196,.4) calc(var(--p,0)*100%),rgba(8,14,20,.7) 0);line-height:1.6}
+.hold small{display:block;font-weight:400;font-size:12px;color:rgba(233,238,242,.65)}
+#finMap{height:min(280px,46vh);width:auto;max-width:80vw;border:1px solid rgba(63,208,196,.3);border-radius:8px}
+#credits{display:flex;flex-direction:column;align-items:center;gap:8px}
+#credits .name{font-size:44px}
+#credits p{margin:0;color:rgba(233,238,242,.65);font-size:14px;line-height:1.9}
 </style>
 </head>
 <body class="ui-off">
@@ -127,10 +167,13 @@ body.ui-off #top,body.ui-off #radar,body.ui-off #radarLbl,body.ui-off #pads,body
     <svg id="actIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11V5a1.5 1.5 0 0 1 3 0v5m0-1a1.5 1.5 0 0 1 3 0v2m0-1a1.5 1.5 0 0 1 3 0v4a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-2.7L4 15a1.5 1.5 0 0 1 2.5-1.6L9 16"/></svg>
     <span id="actTxt">تفاعل</span>
   </button>
+  <div id="gasWrap">
   <button class="pad small" id="gas" aria-label="غاز">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="8" y="3" width="8" height="18" rx="4"/><path d="M8 10h8"/></svg>
+    <svg id="gasIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="8" y="3" width="8" height="18" rx="4"/><path d="M8 10h8"/></svg>
     <span id="gasN">×2</span>
   </button>
+    <button id="cyc" aria-label="بدّل الأداة" hidden>⇆</button>
+  </div>
   <button class="pad" id="stance" aria-label="الوضعية">
     <svg id="stIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></svg>
     <span id="stTxt">واقف</span>
@@ -140,22 +183,45 @@ body.ui-off #top,body.ui-off #radar,body.ui-off #radarLbl,body.ui-off #pads,body
 <div id="radio"><b id="radioWho"></b><span id="radioTxt"></span></div>
 <div id="note"><b id="noteTitle"></b><p id="noteText"></p></div>
 <div id="toast"></div>
+<div id="blink">«بانتظار المساعد الميداني…»</div>
 
 <section class="screen" id="title">
   <img class="logo" src="assets/brand/aboden-splash.png" alt="عبودين قيمز · ABODEN GAMES">
   <div class="game">
     <div class="name">ذيبان<small>THEEBAN</small></div>
-    <div class="sub">صدى الرمال</div>
-    <div class="ver">نسخة 1.0</div>
+    <div class="sub" id="subTitle">صدى الرمال</div>
+    <div class="ver">نسخة 2.0</div>
     <button class="btn" id="startBtn">ابدأ</button>
+    <div id="missions"></div>
   </div>
 </section>
 
 <section class="screen" id="won" hidden>
-  <h2>التسجيل معك</h2>
+  <h2 id="wonTitle">التسجيل معك</h2>
   <div class="story" id="story"></div>
   <div class="hint" id="stats"></div>
-  <button class="btn ghost" id="againBtn">العب مرة ثانية</button>
+  <div class="row"><button class="btn" id="nextBtn">المهمة التالية</button><button class="btn ghost" id="againBtn">أعد المهمة</button></div>
+</section>
+
+<section class="screen cold" id="finale" hidden>
+  <canvas id="finCanvas" hidden></canvas>
+  <button id="finTap" aria-label="التالي"></button>
+  <div id="finText"></div>
+  <canvas id="finMap" width="520" height="280" hidden></canvas>
+  <div id="choice" hidden>
+    <div class="q">ذيبان وأبوه عند اللوحة. المفتاحان جاهزان.<br>اضغط مطوّلاً على اختيارك.</div>
+    <div class="opts">
+      <button class="hold" id="chA">أ · إعادة النظام المركزي<small>الماء يرجع بسرعة للمدن</small></button>
+      <button class="hold" id="chB">ب · تفعيل الشبكة المحلية<small>الماء يرجع بالتدريج لكل القرى</small></button>
+    </div>
+  </div>
+  <div id="credits" hidden>
+    <div class="name">ذيبان<small>THEEBAN</small></div>
+    <p>نهاية الجزء الأول</p>
+    <p>عبودين قيمز · ABODEN GAMES</p>
+    <p id="credStats"></p>
+    <button class="btn ghost" id="restartBtn">من البداية</button>
+  </div>
 </section>
 
 <section class="screen" id="rotate">
@@ -167,34 +233,49 @@ body.ui-off #top,body.ui-off #radar,body.ui-off #radarLbl,body.ui-off #pads,body
 <div id="card"><div class="ct" id="cardTitle"></div><div class="cp" id="cardPlace"></div></div>
 <div id="skip">تخطي ›</div>
 
-<script>window.TH_VERSION = "1.0";</script>
-<script src="lib/three.min.js?v=1.0"></script>
-<script src="lib/GLTFLoader.js?v=1.0"></script>
-<script src="js/logic.js?v=1.0"></script>
-<script src="js/level1.js?v=1.0"></script>
+<script>window.TH_VERSION = "2.0";</script>
+<script src="lib/three.min.js?v=2.0"></script>
+<script src="lib/GLTFLoader.js?v=2.0"></script>
+<script src="js/logic.js?v=2.0"></script>
+<script src="js/level1.js?v=2.0"></script>
+<script src="js/level2.js?v=2.0"></script>
+<script src="js/level3.js?v=2.0"></script>
+<script src="js/level4.js?v=2.0"></script>
+<script src="js/level5.js?v=2.0"></script>
 <!-- مستودع أصول عبودين (أثاث ومعدات مولّدة بالكود) -->
-<script src="lib/aboden/math.js?v=1.0"></script>
-<script src="lib/aboden/builder.js?v=1.0"></script>
-<script src="lib/aboden/tree.js?v=1.0"></script>
-<script src="lib/aboden/texture.js?v=1.0"></script>
-<script src="lib/aboden/mud.js?v=1.0"></script>
-<script src="lib/aboden/skeleton.js?v=1.0"></script>
-<script src="lib/aboden/lp-schemas.js?v=1.0"></script>
-<script src="lib/aboden/lp-core.js?v=1.0"></script>
-<script src="lib/aboden/lp-characters.js?v=1.0"></script>
-<script src="lib/aboden/lp-majlis.js?v=1.0"></script>
-<script src="lib/aboden/kit-core.js?v=1.0"></script>
-<script src="lib/aboden/kit-build.js?v=1.0"></script>
-<script src="lib/aboden/kit-buildings.js?v=1.0"></script>
-<script src="lib/aboden/kit-home.js?v=1.0"></script>
-<script src="lib/aboden/kit-home2.js?v=1.0"></script>
-<script src="lib/aboden/kit-props.js?v=1.0"></script>
-<script src="lib/aboden/kit-tools.js?v=1.0"></script>
-<script src="lib/aboden/kit-street.js?v=1.0"></script>
-<script src="lib/aboden/viewer-three.js?v=1.0"></script>
-<script src="js/fx.js?v=1.0"></script>
-<script src="js/room.js?v=1.0"></script>
-<script src="js/world.js?v=1.0"></script>
-<script src="js/game.js?v=1.0"></script>
+<script src="lib/aboden/math.js?v=2.0"></script>
+<script src="lib/aboden/builder.js?v=2.0"></script>
+<script src="lib/aboden/tree.js?v=2.0"></script>
+<script src="lib/aboden/texture.js?v=2.0"></script>
+<script src="lib/aboden/mud.js?v=2.0"></script>
+<script src="lib/aboden/skeleton.js?v=2.0"></script>
+<script src="lib/aboden/lp-schemas.js?v=2.0"></script>
+<script src="lib/aboden/lp-core.js?v=2.0"></script>
+<script src="lib/aboden/lp-characters.js?v=2.0"></script>
+<script src="lib/aboden/lp-majlis.js?v=2.0"></script>
+<script src="lib/aboden/kit-core.js?v=2.0"></script>
+<script src="lib/aboden/kit-build.js?v=2.0"></script>
+<script src="lib/aboden/kit-buildings.js?v=2.0"></script>
+<script src="lib/aboden/kit-home.js?v=2.0"></script>
+<script src="lib/aboden/kit-home2.js?v=2.0"></script>
+<script src="lib/aboden/kit-props.js?v=2.0"></script>
+<script src="lib/aboden/kit-tools.js?v=2.0"></script>
+<script src="lib/aboden/kit-street.js?v=2.0"></script>
+<!-- حزمة أصول ذيبان (theeban/) من مستودع أصول عبودين -->
+<script src="lib/aboden/tb/tb-core.js?v=2.0"></script>
+<script src="lib/aboden/tb/tb-facility.js?v=2.0"></script>
+<script src="lib/aboden/tb/tb-items.js?v=2.0"></script>
+<script src="lib/aboden/tb/tb-land.js?v=2.0"></script>
+<script src="lib/aboden/tb/tb-props.js?v=2.0"></script>
+<script src="lib/aboden/tb/tb-rooms.js?v=2.0"></script>
+<script src="lib/aboden/tb/tb-security.js?v=2.0"></script>
+<script src="lib/aboden/tb/tb-tunnel.js?v=2.0"></script>
+<script src="lib/aboden/viewer-three.js?v=2.0"></script>
+<script src="js/fx.js?v=2.0"></script>
+<script src="js/room.js?v=2.0"></script>
+<script src="js/stage.js?v=2.0"></script>
+<script src="js/world.js?v=2.0"></script>
+<script src="js/finale3d.js?v=2.0"></script>
+<script src="js/game.js?v=2.0"></script>
 </body>
 </html>

@@ -9,7 +9,7 @@
   const fence = (x, z, w, d) => ({ kind: 'fence', x, z, w, d, h: 3 });
 
   const LEVEL1 = {
-    id: 'm1',
+    id: 'm1', n: 1, env: { kind: 'm1' },
     title: 'المهمة الأولى: صدى الرمال',
     place: 'نقطة مراقبة روافد ٧',
     objectiveText: 'ادخل المجمّع',

@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - name: اختبارات المنطق (الحراس، الرؤية، الزحف، نقاط الحفظ)
-        run: node --test tests/logic.test.js
+        run: node --test tests/logic.test.js tests/levels.test.js
       - name: تثبيت متصفح الاختبار
         run: |
           npm install --no-save playwright@1.48.2

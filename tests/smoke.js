@@ -140,6 +140,64 @@ function serve() {
   won ? ok('شاشة نهاية المهمة ظهرت') : fail('شاشة النهاية ما ظهرت');
   await page.screenshot({ path: path.join(OUT, 'shot-7-ending.png') });
 
+  const nextVis = await page.evaluate(() => { const b = document.getElementById('nextBtn'); return !!(b && b.offsetParent); });
+  nextVis ? ok('زر "المهمة التالية" ظاهر') : fail('زر المهمة التالية مو ظاهر');
+
+  // المهمات 2–5: تفتح من ?m= مباشرة (بدون الشعار)، وتنرسم، وأداة كل مهمة تشتغل
+  const perf = [];
+  for (const m of [2, 3, 4, 5]) {
+    const p2 = await browser.newPage(Object.assign({}, iphone, { deviceScaleFactor: 2 }));
+    p2.on('pageerror', e => errors.push(`m${m} pageerror: ` + e.message));
+    p2.on('console', x => { if (x.type() === 'error') errors.push(`m${m} console: ` + x.text()); });
+    await p2.goto(url + '?m=' + m, { waitUntil: 'load' });
+    await p2.waitForFunction(() => window.__theeban && __theeban.S && document.body.classList.contains('intro'), null, { timeout: 40000 }).catch(() => {});
+    const t2 = await p2.evaluate(() => ({ hidden: document.getElementById('title').hidden, m: __theeban.mission, title: __theeban.S.L.title }));
+    t2.hidden && t2.m === m ? ok(`المهمة ${m} تبدأ مباشرة: ${t2.title}`) : fail(`المهمة ${m}: ${JSON.stringify(t2)}`);
+    await p2.waitForTimeout(1500);
+    await p2.screenshot({ path: path.join(OUT, `m${m}-1-intro.png`) });
+    await p2.evaluate(() => __theeban.skipIntro());
+    await p2.waitForTimeout(1500);
+    await p2.screenshot({ path: path.join(OUT, `m${m}-2-start.png`) });
+    // نقرب من أول هدف عشان نشوف المكان
+    await p2.evaluate(() => { const S = __theeban.S, o = __theeban.TH.curObjective(S); S.guards.forEach(g => { g.state = 'out'; g.outT = 999; }); S.player.x = o.x; S.player.z = o.z + 1.0; });
+    await p2.waitForTimeout(1500);
+    await p2.screenshot({ path: path.join(OUT, `m${m}-3-objective.png`) });
+    const act = await p2.evaluate(() => document.getElementById('act').dataset.m);
+    act.startsWith('use') ? ok(`المهمة ${m}: زر الهدف يطلع (${act})`) : fail(`المهمة ${m}: زر الهدف ${act}`);
+    const info2 = await p2.evaluate(() => { const r = __theeban.ctx.renderer.info.render; return { calls: r.calls, tris: r.triangles }; });
+    perf.push(`m${m}: ${info2.calls} calls, ${info2.tris} tris`);
+    if (m === 3 || m === 4 || m === 5) {
+      const tool = m === 3 ? 'nabbah' : m === 4 ? 'azil' : 'zahif';
+      await p2.evaluate(t => { const S = __theeban.S; S.player.tool = t; S.player.x = S.L.start.x; S.player.z = S.L.start.z; S.player.dir = Math.PI; }, tool);
+      await p2.waitForFunction(t => document.getElementById('gas').dataset.n.startsWith(t), tool, { timeout: 20000 }).catch(() => {});
+      const lbl = await p2.evaluate(() => document.getElementById('gasN').textContent);
+      lbl.length > 1 ? ok(`المهمة ${m}: زر الأداة "${lbl}"`) : fail('زر الأداة فاضي');
+      if (m !== 4) { await p2.tap('#gas'); await p2.waitForTimeout(1200); await p2.screenshot({ path: path.join(OUT, `m${m}-4-${tool}.png`) }); }
+    }
+    if (m === 5) {
+      await p2.evaluate(() => __theeban.finale());
+      for (let k = 0; k < 3; k++) { await p2.waitForTimeout(3500); await p2.screenshot({ path: path.join(OUT, `m5-fin-${k}.png`) }); await p2.tap('#finTap'); }
+      await p2.waitForTimeout(800);
+      const chV = await p2.evaluate(() => !document.getElementById('choice').hidden);
+      chV ? ok('النهاية: الاختيار ظهر') : fail('الاختيار ما ظهر');
+      await p2.screenshot({ path: path.join(OUT, 'm5-fin-3-choice.png') });
+      const b = await p2.locator('#chB').boundingBox();
+      await p2.mouse.move(b.x + 20, b.y + 20); await p2.mouse.down(); await p2.waitForTimeout(1700); await p2.mouse.up();
+      await p2.waitForTimeout(3500);
+      await p2.screenshot({ path: path.join(OUT, 'm5-fin-4-endingB.png') });
+      const txt = await p2.evaluate(() => document.getElementById('finText').textContent);
+      /الشبكة المحلية/.test(txt) ? ok('النهاية ب ظهرت') : fail('النهاية ب ما ظهرت: ' + txt.slice(0, 40));
+      await p2.tap('#finTap'); await p2.waitForTimeout(3500);
+      await p2.screenshot({ path: path.join(OUT, 'm5-fin-5-signals.png') });
+      await p2.tap('#finTap'); await p2.waitForTimeout(800);
+      await p2.screenshot({ path: path.join(OUT, 'm5-fin-6-credits.png') });
+      const cr = await p2.evaluate(() => !document.getElementById('credits').hidden && document.querySelectorAll('img[src*="aboden"]').length);
+      cr === 1 ? ok('الأسماء ظهرت (والشعار ما تكرر)') : fail('الأسماء: ' + cr);
+    }
+    await p2.close();
+  }
+  perf.forEach(x => console.log('info - ' + x));
+
   // وضع الجوال طولي: رسالة لف الجوال
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(300);

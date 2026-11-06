@@ -177,7 +177,7 @@
 
   // ---------- بناء العالم ----------
   W.build = function (canvas, S) {
-    const L = S.L, ctxRef = {};
+    const L = S.L, ctxRef = {}, M1 = !L.env || L.env.kind === 'm1', STAGE = root.STAGE;
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(root.devicePixelRatio || 1, 2));
     renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -207,14 +207,17 @@
     gg.computeVertexNormals();
     const ground = new THREE.Mesh(gg, new THREE.MeshLambertMaterial({ color: 0xa8957c, map: FX.sandTexture() }));
     ground.receiveShadow = true; scene.add(ground);
+    Object.assign(ctxRef, { scene, sky, hemi, moon, ground });
 
     // العوائق
     const r = rng(42);
     const ROOMK = { rroof: 1, rwall: 1, f_rack: 1, f_desk: 1, f_desk2: 1, f_shelf: 1, f_table: 1 };
-    const gates = [];
+    const gates = [], SKIPK = { hidden: 1, solid: 1, twall: 1, duct: 1, roomwall: 1, prop: 1 };
     for (const o of L.allObstacles || L.obstacles) {
       let m;
       if (ROOMK[o.kind]) continue; // ترسمها غرفة الاتصالات
+      if (!M1 && SKIPK[o.kind]) continue; // ترسمها أصول المرحلة (stage.js)
+      if (o.kind === 'wall') { scene.add(box(o.w, o.h, o.d, L.env && L.env.kind === 'indoor' ? 0x3c434b : COL.concrete, o.x, o.y0 + o.h / 2, o.z)); continue; }
       if (o.kind === 'gatebar') { gates.push(ROOM.gate(scene, o)); continue; }
       if (o.kind === 'grate') { gates.push(ROOM.grate(scene, o)); continue; }
       if (o.kind === 'rock') m = rockMesh(o, r);
@@ -226,23 +229,24 @@
       else { m = box(o.w, o.h, o.d, o.h < 2 ? COL.concreteDark : COL.concrete, o.x, o.y0 + o.h / 2, o.z); }
       scene.add(m);
     }
-    const roomFx = ROOM.build(scene, L, W);
+    const roomFx = M1 ? ROOM.build(scene, L, W) : null;
 
     // إنارة الموقع
     // أعمدة إنارة: صوديوم برتقالي عند البوابة والخرابات، وأبيض بارد حول البرج (بعضها يرمش)
-    const lamps = [[-3.2, -9.0, 0xffb060, 0], [3.2, -9.0, 0xffb060, 1], [-4.5, -13.6, 0xbfe2ff, 0], [4.6, -20.9, 0xbfe2ff, 0], [-11.5, -3.2, 0xffb060, 1], [12.6, 4.2, 0xffb060, 0], [-17, 6, 0xffb060, 0]]
+    const lamps = !M1 ? [] : [[-3.2, -9.0, 0xffb060, 0], [3.2, -9.0, 0xffb060, 1], [-4.5, -13.6, 0xbfe2ff, 0], [4.6, -20.9, 0xbfe2ff, 0], [-11.5, -3.2, 0xffb060, 1], [12.6, 4.2, 0xffb060, 0], [-17, 6, 0xffb060, 0]]
       .map(([x, z, c, f]) => FX.lamp(scene, x, z, c, f));
     const sls = (L.searchlights || []).map(l => FX.searchlight(scene, l));
-    const beacons = [[-2.1, 3.15, -10], [2.1, 3.15, -10], [1.6, 3.3, -14.35], [17.6, 6.85, 19.2]].map(([x, y, z]) => FX.beacon(scene, x, y, z));
-    const dust = FX.dust(scene);
-    const details = FX.details(scene, L);
+    const beacons = !M1 ? [] : [[-2.1, 3.15, -10], [2.1, 3.15, -10], [1.6, 3.3, -14.35], [17.6, 6.85, 19.2]].map(([x, y, z]) => FX.beacon(scene, x, y, z));
+    const dust = (M1 || L.env.kind !== 'indoor') ? FX.dust(scene) : null;
+    const details = M1 ? FX.details(scene, L) : null;
     const panels = (L.panels || []).map(p => FX.panel(scene, p));
     // سلّم البرج + صناديق تحكم الكشافات فوق المنصات + كم الريح + شوك يتدحرج
     for (const l of L.ladders || []) if (l.id === 'tower') FX.ladder(scene, l.x - 0.5, l.z, l.h, -Math.PI / 2);
     const ctrls = (L.ladders || []).map(l => l.light != null ? Object.assign(FX.lightCtrl(scene, l.ctrl.x + (l.id === 'post' ? 0.6 : 0.8), l.h, l.ctrl.z - 0.3), { light: l.light }) : null).filter(Boolean);
     const post = L.obstacles.find(o => o.kind === 'post');
     const sock = post ? FX.windsock(scene, post.x - post.w / 2 - 0.1, post.h + 1.4, post.z - post.d / 2) : null;
-    const tumble = FX.tumbleweeds(scene, 3);
+    const outdoor = M1 || L.env.kind === 'night' || L.env.kind === 'storm';
+    const tumble = outdoor ? FX.tumbleweeds(scene, L.env && L.env.kind === 'storm' ? 6 : 3) : [];
     const roofs = []; scene.traverse(o => { if (o.userData && o.userData.roof) roofs.push(o.userData.roof); });
     ctxRef.roofs = roofs;
     const sways = [], fires = []; scene.traverse(o => { if (o.userData && o.userData.sway) sways.push(o.userData.sway); if (o.userData && o.userData.fire) fires.push(o.userData.fire); });
@@ -264,13 +268,13 @@
     const lit = []; scene.traverse(o => { if (o.userData && o.userData.lit) lit.push(...o.userData.lit); });
     const flick = []; scene.traverse(o => { if (o.userData && o.userData.flick) flick.push(o.userData.flick); });
 
-    // الهدف: جهاز التسجيل على صندوق صغير، وحلقة تنبض
-    const objG = new THREE.Group();
+    // الهدف: جهاز التسجيل على صندوق صغير، وحلقة تنبض (المهمة الأولى) — باقي المهمات علامتها في stage.js
+    const objG = new THREE.Group(); if (!M1) objG.visible = false;
     objG.add(box(0.6, 0.6, 0.6, COL.crate, 0, 0.3, 0));
     const rec = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.12, 0.22), new THREE.MeshBasicMaterial({ color: COL.teal })); rec.position.y = 0.66; objG.add(rec);
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.05, 32), new THREE.MeshBasicMaterial({ color: COL.teal, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false }));
     ring.rotation.x = -Math.PI / 2; ring.position.y = 0.04; objG.add(ring);
-    objG.position.set(L.objective.x, 0, L.objective.z); scene.add(objG);
+    if (L.objective) objG.position.set(L.objective.x, 0, L.objective.z); scene.add(objG);
 
     // نقاط الحفظ
     const cps = L.checkpoints.map(c => {
@@ -283,6 +287,8 @@
     const guards = [], cones = [];
     const RAYS = 22;
 
+    if (!M1 && STAGE) ctxRef.stage = STAGE.build(ctxRef, L);
+    ctxRef.hemiBase = hemi.color.clone(); ctxRef.fogBase = scene.fog.color.clone(); if (ctxRef.baseHemi == null) ctxRef.baseHemi = 0.9;
     const ctx = ctxRef; Object.assign(ctx, { renderer, scene, camera, moon, hemi, sky, lamps, sls, beacons, dust, flick, details, panels, lit, ctrls, roomFx, gates, sock, tumble, sways, fires, pickups, shotsG, clouds, player, guards, cones, objG, ring, rec, cps, rings: [], RAYS, camPos: new THREE.Vector3(), lookAt: new THREE.Vector3(), t: 0, alarm: 0, shake: 0, intro: 0 });
     W.syncGuards(ctx, S);
     W.resize(ctx);
@@ -313,11 +319,12 @@
   function camTarget(ctx, S, out) {
     const P = S.player, k = ctx.camDist || 1;
     const up = P.mode === 'top' ? 1.25 : 1;
-    return out.set(P.x, 13 * k * up + (P.y || 0), P.z + 9 * k * up);
+    const ek = ctx.envKind, H = ek === 'tunnel' ? 15 : ek === 'indoor' ? 14 : 13, B = ek === 'tunnel' ? 5.5 : ek === 'indoor' ? 7.5 : 9;
+    return out.set(P.x, H * k * up + (P.y || 0), P.z + B * k * up);
   }
   W.snapCamera = function (ctx, S) { camTarget(ctx, S, ctx.camPos); ctx.camera.position.copy(ctx.camPos); ctx.camera.lookAt(S.player.x, 0, S.player.z - 1.2); };
 
-  const tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3();
+  const tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3(), ALARM_C = new THREE.Color(0.9, 0.2, 0.15), ALARM_F = new THREE.Color(0.3, 0.05, 0.04);
   W.render = function (ctx, S, dt) {
     ctx.t += dt;
     const P = S.player, t = ctx.t;
@@ -375,6 +382,7 @@
     // الهدف ونقاط الحفظ
     const pul = 1 + Math.sin(t * 3) * 0.12;
     ctx.ring.scale.set(pul, pul, pul); ctx.rec.visible = !S.objectiveTaken;
+    if (ctx.stage && root.STAGE) root.STAGE.update(ctx, S, dt, t);
     ctx.cps.forEach((m, i) => { const cur = i === S.checkpoint.idx; m.material.color.setHex(cur ? COL.teal : 0x8aa0b0); m.material.opacity = cur ? 0.7 : 0.3; });
     if (W.blink) W.blink.visible = Math.floor(t * 1.4) % 2 === 0;
 
@@ -389,8 +397,8 @@
     const lvl = TH.alertLevel(S).level;
     ctx.alarm += ((lvl === 2 ? 1 : 0) - ctx.alarm) * Math.min(1, dt * 3);
     const al = ctx.alarm;
-    ctx.hemi.color.setRGB(0.43 + al * 0.18, 0.51 - al * 0.14, 0.66 - al * 0.22);
-    ctx.scene.fog.color.setRGB(0.11 + al * 0.14, 0.10 - al * 0.03, 0.125 - al * 0.04);
+    if (ctx.stage) { ctx.hemi.color.copy(ctx.hemiBase).lerp(ALARM_C, al * 0.45); ctx.scene.fog.color.copy(ctx.fogBase).lerp(ALARM_F, al * 0.5); }
+    else { ctx.hemi.color.setRGB(0.43 + al * 0.18, 0.51 - al * 0.14, 0.66 - al * 0.22); ctx.scene.fog.color.setRGB(0.11 + al * 0.14, 0.10 - al * 0.03, 0.125 - al * 0.04); }
     ctx.sky.sky.material.uniforms.uAlarm.value = al;
     ctx.beacons.forEach(b => FX.updateBeacon(b, al, t, dt));
     const off = S.power && S.power.off;
@@ -402,12 +410,12 @@
     for (const [lamp, gl] of ctx.flick) { const on = !off && Math.random() > 0.08; lamp.visible = on; gl.material.opacity = on ? 0.6 + Math.random() * 0.3 : 0; }
     for (const w of ctx.lit) w.material.color.setHex(off ? 0x1a1a1a : 0xffc070);
     ctx.panels.forEach(p => FX.updatePanel(p, S.alarm && S.alarm.on, off, t));
-    FX.updateDetails(ctx.details, t, off);
+    if (ctx.details) FX.updateDetails(ctx.details, t, off);
     ctx.sls.forEach((o, i) => { if (S.lights[i] && S.lights[i].dead) o.beam.visible = o.spot.visible = o.ring.visible = o.glow.visible = false; });
     for (const c of ctx.ctrls) { const dead = S.lights[c.light] && S.lights[c.light].dead, col = off ? 0x111111 : dead ? (Math.floor(t * 6) % 2 ? 0xff3322 : 0x220000) : 0x33ff66; c.led.material.color.setHex(col); c.gl.material.color.setHex(col); c.gl.material.opacity = off || (dead && !(Math.floor(t * 6) % 2)) ? 0 : 0.7; }
     const lp = (P.mode === 'top' || P.mode === 'climb') && P.ladder ? P.ladder.plat : null;
     for (const r of ctx.roofs) { const at = r.userData.at, on = lp && at && Math.abs(at[0] - lp.x) < 0.5 && Math.abs(at[1] - lp.z) < 0.5; r.material.opacity += ((on ? 0.15 : 1) - r.material.opacity) * Math.min(1, dt * 6); }
-    ROOM.update(ctx.roomFx, S, dt, t, TH.inRoom(S), off, ctx.alarm);
+    if (ctx.roomFx) ROOM.update(ctx.roomFx, S, dt, t, TH.inRoom(S), off, ctx.alarm);
     for (const G of ctx.gates) ROOM.updateGate(G, S.gateOpen, dt);
     if (ctx.sock) { ctx.sock.rotation.y = Math.sin(t * 0.4) * 0.3; ctx.sock.rotation.z = -0.15 + Math.sin(t * 7) * 0.05; }
     FX.updateTumble(ctx.tumble, dt, t);
@@ -420,8 +428,8 @@
     for (const c of S.clouds) { if (!ctx.clouds.has(c)) ctx.clouds.set(c, FX.gasCloud(ctx.scene, c.x, c.z, c.r)); FX.updateGasCloud(ctx.clouds.get(c), c); }
     for (const [c, C] of ctx.clouds) if (!S.clouds.includes(c)) { ctx.scene.remove(C.g); ctx.clouds.delete(c); }
     ctx.darkness = (ctx.darkness || 0) + ((off ? 1 : 0) - (ctx.darkness || 0)) * Math.min(1, dt * 2);
-    ctx.hemi.intensity = 0.9 - ctx.darkness * 0.25;
-    FX.updateDust(ctx.dust, P.x, P.z, dt, t);
+    ctx.hemi.intensity = ctx.baseHemi - ctx.darkness * 0.25;
+    if (ctx.dust) FX.updateDust(ctx.dust, P.x, P.z, dt, t);
 
     // الكاميرا تتبع ذيبان (وتقرب شوي وهو منحني)، تهتز مع الإنذار، ولقطة افتتاحية فوق الموقع
     const zoom = P.stance === 'crawl' ? 0.88 : P.stance === 'crouch' ? 0.94 : 1;
@@ -432,10 +440,11 @@
     if (ctx.intro > 0) {
       const k = 1 - ctx.intro, e = k * k * (3 - 2 * k);
       // من فوق البرج ← فوق الساحة ← ذيبان
-      const a = [6, 11, -27], b = [-4, 24, 2], c = [ctx.camPos.x, ctx.camPos.y, ctx.camPos.z];
+      const IC = S.L.introCam || (ctx.stage ? { a: [0, 30, 14], b: [S.L.start.x * 0.5, 24, S.L.start.z * 0.4 + 6], la: [0, 0, -4] } : null);
+      const a = IC ? IC.a : [6, 11, -27], b = IC ? IC.b : [-4, 24, 2], c = [ctx.camPos.x, ctx.camPos.y, ctx.camPos.z];
       const q = (i) => (1 - e) * (1 - e) * a[i] + 2 * (1 - e) * e * b[i] + e * e * c[i];
       ctx.camera.position.set(q(0), q(1), q(2));
-      const la = [0, 5, -17], lc = [look.x, 0, look.z];
+      const la = IC ? IC.la : [0, 5, -17], lc = [look.x, 0, look.z];
       ctx.camera.lookAt(la[0] + (lc[0] - la[0]) * e, la[1] + (lc[1] - la[1]) * e, la[2] + (lc[2] - la[2]) * e);
     } else {
       ctx.camera.position.copy(ctx.camPos);
