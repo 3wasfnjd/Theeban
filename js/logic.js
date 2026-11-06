@@ -316,6 +316,7 @@
     if (ni >= 0) return { kind: 'read', note: ni };
     if (S.alarm.on && (S.L.panels || []).some(p => near(p, 1.6))) return { kind: 'panel', need: 1.0 };
     if (!S.power.off && near(S.L.generator, 1.8)) return { kind: 'gen', need: 1.2 };
+    if (T.subdueTarget(S)) return { kind: 'subdue' }; // الحارس قدامك أهم من أي شي ثاني
     if (!S.gateOpen && (S.L.gatePoints || []).some(g => near(g, 1.4))) return { kind: 'gate' };
     const lad = (S.L.ladders || []).find(l => near(l, 1.0));
     if (lad && P.stance !== 'crawl') return { kind: 'climb', ladder: lad };
