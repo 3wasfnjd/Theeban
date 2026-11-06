@@ -93,7 +93,7 @@
   const ICON_PLAY = '<rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="8.5" cy="12" r="2"/><circle cx="15.5" cy="12" r="2"/><path d="M8.5 14h7"/>';
   const ICON_NOTE = '<path d="M6 3h9l4 4v14H6zM14 3v5h5M9 12h7M9 16h5"/>';
   const ACT = { play: ['شغّل', ICON_PLAY], read: ['اقرأ', ICON_NOTE], take: ['تفاعل', ICON_HAND], subdue: ['تخدير', ICON_SUB], panel: ['أطفئ', ICON_BELL], gen: ['اقطع', ICON_BOLT],
-    climb: ['تسلق', ICON_UP], down: ['انزل', ICON_DOWN], light: ['عطّل', ICON_LIGHT], hide: ['اختبي', ICON_CAR], exit: ['اطلع', ICON_OUT], throw: ['رمي', ICON_HAND], none: ['تفاعل', ICON_HAND] };
+    climb: ['تسلق', ICON_UP], gate: ['افتح', ICON_HAND], down: ['انزل', ICON_DOWN], light: ['عطّل', ICON_LIGHT], hide: ['اختبي', ICON_CAR], exit: ['اطلع', ICON_OUT], throw: ['رمي', ICON_HAND], none: ['تفاعل', ICON_HAND] };
   let radioT = 0, toastT = 0, lastLevel = 0, alarmHint = 0;
 
   function showRadio(who, text) { $('radioWho').textContent = who + ':'; $('radioTxt').textContent = text; $('radio').classList.add('on'); radioT = 4 + text.length * 0.05; SFX.radio(); }
@@ -157,24 +157,24 @@
       else if (e.t === 'won') win();
       else if (e.t === 'lost') toast('ضيّعوك', 1.2);
       else if (e.t === 'subdued') { SFX.subdue(); toast('نام الحارس', 1.1); }
-      else if (e.t === 'body') { SFX.sus(); showRadio('برق', 'شافوا الطايح!'); }
+      else if (e.t === 'body') SFX.sus();
       else if (e.t === 'woke') toast('صحى حارس', 1);
       else if (e.t === 'spotted') { SFX.spotted(); toast('الضوء كشفك!', 1.2); ctx.shake = 0.5; }
-      else if (e.t === 'alarm_on') { if (!alarmHint) { alarmHint = 1; showRadio('برق', 'إنذار! أطفيه من اللوحة أو اقطع المولد.'); } }
+      else if (e.t === 'alarm_on') { toast('إنذار!', 1); }
       else if (e.t === 'alarm_off') { SFX.cp(); toast(e.why === 'timeout' ? 'هدأ الإنذار' : 'انطفى الإنذار', 1.3); }
       else if (e.t === 'power_off') { SFX.power(); toast('انقطعت الكهربا', 1.3); ctx.shake = 0.25; }
       else if (e.t === 'power_on') { tone(200, 0.4, 'sawtooth', 0.06, 600); toast('رجعت الكهربا', 1.2); }
       else if (e.t === 'gas_pick') { SFX.cp(); toast('+1 غاز', 1); }
       else if (e.t === 'note') showNote(e.title, e.text);
-      else if (e.t === 'gate_open') { SFX.won(); toast('انفتحت البوابة', 1.6); showRadio('برق', 'البوابة انفتحت! ادخل المجمّع.'); ctx.shake = 0.3; }
+      else if (e.t === 'gate_open') { tone(180, 0.5, 'square', 0.05, 90); toast('انفك قفل البوابة', 1.4); }
+      else if (e.t === 'gate_closed') { tone(90, 0.4, 'square', 0.06, 180); toast('تسكّرت البوابة', 1.2); }
+      else if (e.t === 'gate_locked') { tone(120, 0.18, 'square', 0.07); tone(120, 0.18, 'square', 0.07, 0, 0.22); toast('مقفلة… قفل كهربائي', 1.8); }
       else if (e.t === 'action_start' && e.kind === 'play') playStatic();
       else if (e.t === 'gas_throw') tone(500, 0.15, 'triangle', 0.06, 900);
       else if (e.t === 'gas_land') { tone(160, 0.4, 'sawtooth', 0.05, 60); W.noiseRing(ctx, e.x, e.z, 6); }
       else if (e.t === 'gassed') { SFX.subdue(); toast('نام بالغاز', 1.1); }
       else if (e.t === 'light_dead') { tone(900, 0.5, 'square', 0.06, 80); toast('تعطّل الكشاف', 1.3); }
-      else if (e.t === 'hidden') toast('مختبي', 0.9);
       else if (e.t === 'found') { SFX.alert(); toast('لقوك!', 1.2); }
-      else if (e.t === 'on_top') toast('فوق', 0.7);
     }
     S.events.length = 0;
     if (S.player.moving && S.player.stance === 'stand') { stepT -= dt; if (stepT <= 0) { stepT = S.player.running ? 0.28 : 0.5; SFX.step(); } }

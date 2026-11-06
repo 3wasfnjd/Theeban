@@ -196,7 +196,7 @@
       picked: {}, shots: [], clouds: [],
       checkpoint: { x: L.start.x, z: L.start.z, idx: -1, gas: L.gasStart || 0, picked: {} },
       guards: [], events: [], radioDone: {}, caughtT: 0, catches: 0, objectiveTaken: false,
-      gateOpen: !(L.gateLights || []).length, notesRead: {},
+      gateOpen: !L.gateLock, gateTried: false, notesRead: {},
       lights: newLights(L), alarm: { on: false, t: 0, x: 0, z: 0 }, power: { off: false, t: 0 }, action: null
     };
     S.guards = L.guards.map((g, i) => newGuard(g, i));
@@ -316,6 +316,7 @@
     if (ni >= 0) return { kind: 'read', note: ni };
     if (S.alarm.on && (S.L.panels || []).some(p => near(p, 1.6))) return { kind: 'panel', need: 1.0 };
     if (!S.power.off && near(S.L.generator, 1.8)) return { kind: 'gen', need: 1.2 };
+    if (!S.gateOpen && (S.L.gatePoints || []).some(g => near(g, 1.4))) return { kind: 'gate' };
     const lad = (S.L.ladders || []).find(l => near(l, 1.0));
     if (lad && P.stance !== 'crawl') return { kind: 'climb', ladder: lad };
     const hs = (S.L.hideSpots || []).find(h => near(h, 1.2));
@@ -326,6 +327,7 @@
   T.doAction = function (S) {
     const a = T.action(S); if (!a) return false;
     if (a.kind === 'take') return T.interact(S);
+    if (a.kind === 'gate') { S.gateTried = true; S.events.push({ t: 'gate_locked' }); return true; }
     if (a.kind === 'read') { const n = S.L.notes[a.note]; S.notesRead[a.note] = 1; S.events.push({ t: 'note', i: a.note, title: n.title, text: n.text }); return true; }
     if (a.kind === 'subdue') return T.startSubdue(S);
     const P = S.player;
@@ -343,9 +345,9 @@
     S.action = null;
     if (A.kind === 'play') { T.interact(S); return; }
     if (A.kind === 'panel') alarmOff(S, 'panel');
-    if (A.kind === 'light') { const li = S.player.ladder.light; S.lights[li].dead = true; S.lights[li].meter = 0; S.events.push({ t: 'light_dead', light: li }); applyGate(S); }
+    if (A.kind === 'light') { const li = S.player.ladder.light; S.lights[li].dead = true; S.lights[li].meter = 0; S.events.push({ t: 'light_dead', light: li }); }
     if (A.kind === 'gen') {
-      S.power.off = true; S.power.t = 25;
+      S.power.off = true; S.power.t = 35;
       S.events.push({ t: 'power_off' });
       alarmOff(S, 'power');
       const G = S.L.generator; // أقرب حارس يجي يصلح المولد
@@ -446,23 +448,25 @@
   }
 
   // ---------- البوابة المقفلة ----------
-  // بوابة المجمّع وشبك الأنابيب مقفولة لين تتعطل كشافات الأبراج (L.gateLights). بعدها تنشال من العوائق.
+  // بوابة المجمّع وشبك الأنابيب: تنشال من العوائق وقت ما تكون الكهربا مقطوعة.
+  // البوابة وشبك الأنابيب بقفل كهربائي: تنفتح لما تنقطع الكهربا (المولد)، وتتسكّر إذا رجعت
   function applyGate(S, silent) {
-    const L = S.L, need = L.gateLights || [];
-    const open = need.every(i => S.lights[i] && S.lights[i].dead);
+    const L = S.L;
+    const open = !L.gateLock || !!(S.power && S.power.off);
     const was = S.gateOpen;
     S.gateOpen = open;
     L.obstacles = open ? L.allObstacles.filter(o => !o.lock) : L.allObstacles;
     if (was !== open || silent) L.grid = buildGrid(L, 0.5);
     if (open && !was && !silent) S.events.push({ t: 'gate_open' });
+    if (!open && was && !silent) S.events.push({ t: 'gate_closed' });
   }
   T.applyGate = applyGate;
-  T.gateProgress = function (S) { const n = S.L.gateLights || []; return { done: n.filter(i => S.lights[i] && S.lights[i].dead).length, total: n.length }; };
+  T.inCompound = function (S) { const P = S.player; return P.z < (S.L.compoundZ != null ? S.L.compoundZ : -1e9); };
   T.inRoom = function (S) { const R = S.L.room, P = S.player; return !!R && (P.y || 0) < 0.5 && Math.abs(P.x - R.x) < R.w / 2 && Math.abs(P.z - R.z) < R.d / 2; };
   T.objectiveText = function (S) {
     if (S.objectiveTaken) return 'تم';
-    if (!S.gateOpen) { const g = T.gateProgress(S), ar = n => String(n).replace(/[0-9]/g, d => '٠١٢٣٤٥٦٧٨٩'[d]); return `عطّل كشافات الأبراج · ${ar(g.done)} من ${ar(g.total)}`; }
-    return T.inRoom(S) ? 'شغّل التسجيل' : 'ادخل غرفة الاتصالات';
+    if (T.inRoom(S)) return 'شغّل التسجيل';
+    return T.inCompound(S) ? 'دوّر على التسجيل' : 'ادخل المجمّع';
   };
 
   T.canInteract = function (S) {
@@ -538,7 +542,7 @@
     else updatePlayer(S, input || {}, dt);
     updateGas(S, dt);
     for (const g of S.guards) updateGuard(S, g, dt);
-    if (S.status === 'play') { updateLights(S, dt); updateAlarm(S, dt); }
+    if (S.status === 'play') { updateLights(S, dt); updateAlarm(S, dt); if (S.L.gateLock && S.gateOpen !== !!S.power.off) applyGate(S); }
     checkZones(S);
   };
 

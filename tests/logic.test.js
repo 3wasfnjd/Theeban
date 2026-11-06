@@ -7,7 +7,7 @@ const LEVEL1 = require('../js/level1.js');
 
 const DT = 1 / 60;
 // يفتح البوابة (كأن الكشافات تعطلت) للاختبارات اللي تحتاج المجمّع
-function openGate(L) { const S = T.newGame(L); (L.gateLights || []).forEach(i => { S.lights[i].dead = true; }); T.applyGate(S); return S; }
+function openGate(L) { const S = T.newGame(L); S.power.off = true; T.applyGate(S); return S; }
 function run(S, seconds, input) { for (let t = 0; t < seconds; t += DT) T.update(S, input || {}, DT); }
 
 // مرحلة اختبار صغيرة: حارس واحد واقف يطالع جنوب (z+)
@@ -96,7 +96,7 @@ test('المهمة الأولى: التسجيل يوصل له بعد ما تنف
   const L = T.makeLevel(LEVEL1);
   const S0 = T.newGame(L);
   assert.ok(!T.playerReachable(L, L.start, L.objective), 'مقفل قبل تعطيل الكشافات');
-  L.gateLights.forEach(i => { S0.lights[i].dead = true; }); T.applyGate(S0);
+  S0.power.off = true; T.applyGate(S0);
   assert.ok(T.playerReachable(L, L.start, L.objective), 'مفتوح بعد التعطيل');
   // وبدون الأنابيب (لو كانت مسكّرة) ما فيه طريق إلا البوابة
   const S = T.newGame(L);
@@ -210,7 +210,7 @@ test('المولد: قطع الكهربا يطفي الكشافات والإنذ
   run(S, 1);
   assert.strictEqual(S.lights[0].meter, 0, 'الكشاف ما يشوف وهو طافي');
   S.player.x = 13; S.player.z = 13;
-  for (let t = 0; t < 30 && S.power.off; t += DT) T.update(S, {}, DT);
+  for (let t = 0; t < 40 && S.power.off; t += DT) T.update(S, {}, DT);
   assert.ok(!S.power.off, 'رجعت الكهربا (الحارس صلحها أو خلص الوقت)');
 });
 
@@ -278,20 +278,21 @@ test('المهمة الأولى: السلالم وأماكن الاختباء و
   assert.ok(T.findPath(L, 0, -6, 0, -12), 'البوابة مفتوحة للحراس');
 });
 
-test('البوابة: تنفتح بس لما تتعطل كشافات البرجين، وتبقى مفتوحة بعد الإمساك', () => {
-  const L = T.makeLevel(LEVEL1); const S = T.newGame(L);
+test('البوابة: قفل كهربائي — تنفتح لما تنقطع الكهربا وتتسكّر لما ترجع، ومحاولة فتحها تعطي رسالة', () => {
+  const L = T.makeLevel(LEVEL1); const S = T.newGame(L); S.guards = [];
   assert.strictEqual(S.gateOpen, false);
-  assert.ok(L.obstacles.some(o => o.lock));
-  S.lights[1].dead = true; T.applyGate(S);
-  assert.strictEqual(S.gateOpen, false, 'كشاف واحد ما يكفي');
-  S.lights[2].dead = true; T.applyGate(S);
-  assert.strictEqual(S.gateOpen, true);
-  assert.ok(S.events.some(e => e.t === 'gate_open'));
+  const gp = L.gatePoints[0]; S.player.x = gp.x; S.player.z = gp.z;
+  const a = T.action(S); assert.ok(a && a.kind === 'gate'); T.doAction(S);
+  assert.ok(S.events.some(e => e.t === 'gate_locked'));
+  S.lights[1].dead = true; S.lights[2].dead = true; run(S, 0.1);
+  assert.strictEqual(S.gateOpen, false, 'الكشافات ما لها علاقة بالبوابة');
+  S.player.x = L.generator.x; S.player.z = L.generator.z; run(S, 0.05);
+  assert.strictEqual(T.action(S).kind, 'gen'); T.doAction(S); run(S, 1.4);
+  assert.ok(S.power.off); assert.strictEqual(S.gateOpen, true);
   assert.ok(!L.obstacles.some(o => o.lock));
-  // نقطة حفظ داخل المجمّع ثم ينمسك: البوابة تبقى مفتوحة
-  S.guards = []; S.player.x = -2.4; S.player.z = -15.3; T.update(S, {}, 1 / 60);
-  T.resetToCheckpoint(S);
-  assert.strictEqual(S.gateOpen, true);
+  assert.ok(T.playerReachable(L, L.start, L.objective));
+  S.power.t = 0.01; run(S, 0.1);
+  assert.strictEqual(S.gateOpen, false, 'رجعت الكهربا وتسكّرت');
 });
 
 test('الغرفة: المذكرات تنقرا، وتشغيل التسجيل ياخذ وقت وبعدين يفوز', () => {
@@ -301,7 +302,7 @@ test('الغرفة: المذكرات تنقرا، وتشغيل التسجيل ي
   assert.ok(S.notesRead[0]); assert.ok(S.events.some(e => e.t === 'note'));
   S.player.x = L.objective.x; S.player.z = L.objective.z;
   assert.ok(T.inRoom(S));
-  assert.strictEqual(T.objectiveText(S), 'عطّل كشافات الأبراج · ٠ من ٢');
+  assert.strictEqual(T.objectiveText(S), 'شغّل التسجيل');
   const a = T.action(S); assert.strictEqual(a.kind, 'play'); T.doAction(S);
   run(S, 1); assert.strictEqual(S.status, 'play', 'لسا يشتغل');
   run(S, 2); assert.strictEqual(S.status, 'won');
@@ -333,6 +334,6 @@ test('نقاط الحفظ: بعيدة عن دوريات الحراس، ما تن
       const inSweep = Math.abs(c.x - l.cx) < l.ax + l.r + c.r && Math.abs(c.z - l.cz) < l.az + l.r + c.r;
       assert.ok(!inSweep || T.blocked(L.allObstacles, l.sx, l.sz, l.sh, c.x, c.z, 1.5), `نقطة (${c.x},${c.z}) في مسح كشاف`);
     }
-    assert.ok(T.playerReachable(L, L.start, c) || (() => { const S = T.newGame(L); L.gateLights.forEach(i => { S.lights[i].dead = true; }); T.applyGate(S); return T.playerReachable(L, L.start, c); })(), `نقطة (${c.x},${c.z}) ما يوصل لها`);
+    assert.ok(T.playerReachable(L, L.start, c) || (() => { openGate(L); return T.playerReachable(L, L.start, c); })(), `نقطة (${c.x},${c.z}) ما يوصل لها`);
   }
 });
