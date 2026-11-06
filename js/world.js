@@ -2,7 +2,7 @@
 // موديلات الشخصيات تنركّب لاحقاً مكان الأجسام المؤقتة: makePlayer / makeGuard (انظر README).
 (function (root) {
   'use strict';
-  const THREE = root.THREE, TH = root.TH, FX = root.FX;
+  const THREE = root.THREE, TH = root.TH, FX = root.FX, ROOM = root.ROOM;
   const W = {};
 
   const COL = {
@@ -210,8 +210,13 @@
 
     // العوائق
     const r = rng(42);
-    for (const o of L.obstacles) {
+    const ROOMK = { rwall: 1, f_rack: 1, f_desk: 1, f_desk2: 1, f_shelf: 1, f_table: 1 };
+    const gates = [];
+    for (const o of L.allObstacles || L.obstacles) {
       let m;
+      if (ROOMK[o.kind]) continue; // ترسمها غرفة الاتصالات
+      if (o.kind === 'gatebar') { gates.push(ROOM.gate(scene, o)); continue; }
+      if (o.kind === 'grate') { gates.push(ROOM.grate(scene, o)); continue; }
       if (o.kind === 'rock') m = rockMesh(o, r);
       else if (o.kind === 'crate') m = crateMesh(o);
       else if (o.kind === 'ruin') m = ruinMesh(o, r);
@@ -221,13 +226,14 @@
       else { m = box(o.w, o.h, o.d, o.h < 2 ? COL.concreteDark : COL.concrete, o.x, o.y0 + o.h / 2, o.z); }
       scene.add(m);
     }
+    const roomFx = ROOM.build(scene, L, W);
 
     // إنارة الموقع
     // أعمدة إنارة: صوديوم برتقالي عند البوابة والخرابات، وأبيض بارد حول البرج (بعضها يرمش)
     const lamps = [[-3.2, -9.0, 0xffb060, 0], [3.2, -9.0, 0xffb060, 1], [-4.5, -13.6, 0xbfe2ff, 0], [4.6, -20.9, 0xbfe2ff, 0], [-11.5, -3.2, 0xffb060, 1], [12.6, 4.2, 0xffb060, 0], [-17, 6, 0xffb060, 0]]
       .map(([x, z, c, f]) => FX.lamp(scene, x, z, c, f));
     const sls = (L.searchlights || []).map(l => FX.searchlight(scene, l));
-    const beacons = [[-2.1, 3.15, -10], [2.1, 3.15, -10], [1.5, 2.85, -14.9], [17.6, 6.85, 19.2]].map(([x, y, z]) => FX.beacon(scene, x, y, z));
+    const beacons = [[-2.1, 3.15, -10], [2.1, 3.15, -10], [1.6, 3.3, -14.35], [17.6, 6.85, 19.2]].map(([x, y, z]) => FX.beacon(scene, x, y, z));
     const dust = FX.dust(scene);
     const details = FX.details(scene, L);
     const panels = (L.panels || []).map(p => FX.panel(scene, p));
@@ -276,7 +282,7 @@
     const guards = [], cones = [];
     const RAYS = 22;
 
-    const ctx = ctxRef; Object.assign(ctx, { renderer, scene, camera, moon, hemi, sky, lamps, sls, beacons, dust, flick, details, panels, lit, ctrls, sock, tumble, sways, fires, pickups, shotsG, clouds, player, guards, cones, objG, ring, rec, cps, rings: [], RAYS, camPos: new THREE.Vector3(), lookAt: new THREE.Vector3(), t: 0, alarm: 0, shake: 0, intro: 0 });
+    const ctx = ctxRef; Object.assign(ctx, { renderer, scene, camera, moon, hemi, sky, lamps, sls, beacons, dust, flick, details, panels, lit, ctrls, roomFx, gates, sock, tumble, sways, fires, pickups, shotsG, clouds, player, guards, cones, objG, ring, rec, cps, rings: [], RAYS, camPos: new THREE.Vector3(), lookAt: new THREE.Vector3(), t: 0, alarm: 0, shake: 0, intro: 0 });
     W.syncGuards(ctx, S);
     W.resize(ctx);
     W.snapCamera(ctx, S);
@@ -394,8 +400,10 @@
     FX.updateDetails(ctx.details, t, off);
     ctx.sls.forEach((o, i) => { if (S.lights[i] && S.lights[i].dead) o.beam.visible = o.spot.visible = o.ring.visible = o.glow.visible = false; });
     for (const c of ctx.ctrls) { const dead = S.lights[c.light] && S.lights[c.light].dead, col = off ? 0x111111 : dead ? (Math.floor(t * 6) % 2 ? 0xff3322 : 0x220000) : 0x33ff66; c.led.material.color.setHex(col); c.gl.material.color.setHex(col); c.gl.material.opacity = off || (dead && !(Math.floor(t * 6) % 2)) ? 0 : 0.7; }
-    const onPost = (P.mode === 'top' || P.mode === 'climb') && P.ladder && P.ladder.id === 'post';
-    for (const r of ctx.roofs) { r.material.opacity += ((onPost ? 0.15 : 1) - r.material.opacity) * Math.min(1, dt * 6); }
+    const lp = (P.mode === 'top' || P.mode === 'climb') && P.ladder ? P.ladder.plat : null;
+    for (const r of ctx.roofs) { const at = r.userData.at, on = lp && at && Math.abs(at[0] - lp.x) < 0.5 && Math.abs(at[1] - lp.z) < 0.5; r.material.opacity += ((on ? 0.15 : 1) - r.material.opacity) * Math.min(1, dt * 6); }
+    ROOM.update(ctx.roomFx, S, dt, t, TH.inRoom(S), off, ctx.alarm);
+    for (const G of ctx.gates) ROOM.updateGate(G, S.gateOpen, dt);
     if (ctx.sock) { ctx.sock.rotation.y = Math.sin(t * 0.4) * 0.3; ctx.sock.rotation.z = -0.15 + Math.sin(t * 7) * 0.05; }
     FX.updateTumble(ctx.tumble, dt, t);
     ctx.sways.forEach((sw, i) => { sw.rotation.z = Math.sin(t * 1.1 + i) * 0.05; sw.rotation.x = Math.sin(t * 0.8 + i * 2) * 0.04; });

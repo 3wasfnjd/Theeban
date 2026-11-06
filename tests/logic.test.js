@@ -6,6 +6,8 @@ const T = require('../js/logic.js');
 const LEVEL1 = require('../js/level1.js');
 
 const DT = 1 / 60;
+// يفتح البوابة (كأن الكشافات تعطلت) للاختبارات اللي تحتاج المجمّع
+function openGate(L) { const S = T.newGame(L); (L.gateLights || []).forEach(i => { S.lights[i].dead = true; }); T.applyGate(S); return S; }
 function run(S, seconds, input) { for (let t = 0; t < seconds; t += DT) T.update(S, input || {}, DT); }
 
 // مرحلة اختبار صغيرة: حارس واحد واقف يطالع جنوب (z+)
@@ -90,16 +92,19 @@ test('الحارس يمشي على مسار الدورية', () => {
   assert.ok(maxX > 4.8, 'وصل للنقطة الثانية');
 });
 
-test('المهمة الأولى: التسجيل يوصل له بالزحف تحت الأنابيب', () => {
+test('المهمة الأولى: التسجيل يوصل له بعد ما تنفتح البوابة', () => {
   const L = T.makeLevel(LEVEL1);
-  assert.ok(T.playerReachable(L, L.start, L.objective));
+  const S0 = T.newGame(L);
+  assert.ok(!T.playerReachable(L, L.start, L.objective), 'مقفل قبل تعطيل الكشافات');
+  L.gateLights.forEach(i => { S0.lights[i].dead = true; }); T.applyGate(S0);
+  assert.ok(T.playerReachable(L, L.start, L.objective), 'مفتوح بعد التعطيل');
   // وبدون الأنابيب (لو كانت مسكّرة) ما فيه طريق إلا البوابة
   const S = T.newGame(L);
   assert.strictEqual(S.guards.length, 3);
 });
 
 test('المهمة الأولى: الحراس ما يعبرون تحت الأنابيب', () => {
-  const L = T.makeLevel(LEVEL1);
+  const L = T.makeLevel(LEVEL1); openGate(L);
   const p = T.findPath(L, 17, -6, 17, -13);
   assert.ok(p, 'فيه مسار');
   // المسار لازم يمر من البوابة (|x|<2) مو من الأنابيب
@@ -109,7 +114,7 @@ test('المهمة الأولى: الحراس ما يعبرون تحت الأن�
 
 test('المهمة الأولى: أخذ التسجيل يفوز', () => {
   const S = T.newGame(T.makeLevel(LEVEL1));
-  S.guards = []; S.player.x = 0; S.player.z = -13.2;
+  S.guards = []; S.player.x = S.L.objective.x; S.player.z = S.L.objective.z;
   assert.ok(T.canInteract(S));
   assert.ok(T.interact(S));
   assert.strictEqual(S.status, 'won');
@@ -138,7 +143,7 @@ test('الكشاف الضوئي: الصخرة العالية تحجب الضوء
 });
 
 test('المهمة الأولى: الأغراض الجديدة ما تسكّر الطريق، والحراس يمرون من البوابة', () => {
-  const L = T.makeLevel(LEVEL1);
+  const L = T.makeLevel(LEVEL1); openGate(L);
   assert.ok(T.playerReachable(L, L.start, L.checkpoints[0]));
   assert.ok(T.playerReachable(L, L.checkpoints[0], L.checkpoints[1]));
   assert.ok(T.playerReachable(L, L.checkpoints[1], L.objective));
@@ -210,7 +215,7 @@ test('المولد: قطع الكهربا يطفي الكشافات والإنذ
 });
 
 test('المهمة الأولى: اللوحات والمولد في أماكن يوصل لها ذيبان', () => {
-  const L = T.makeLevel(LEVEL1);
+  const L = T.makeLevel(LEVEL1); openGate(L);
   for (const p of L.panels) assert.ok(T.playerReachable(L, L.start, p), JSON.stringify(p));
   assert.ok(T.playerReachable(L, L.start, L.generator));
   assert.ok(T.playerReachable(L, L.checkpoints[1], L.objective));
@@ -267,8 +272,43 @@ test('الغاز: الكبسولة تنوّم الحارس اللي قدامه،
 });
 
 test('المهمة الأولى: السلالم وأماكن الاختباء والكبسولات يوصل لها', () => {
-  const L = T.makeLevel(LEVEL1);
+  const L = T.makeLevel(LEVEL1); openGate(L);
   for (const p of [...L.ladders, ...L.hideSpots, ...L.gasPickups]) assert.ok(T.playerReachable(L, L.start, p), JSON.stringify(p));
   assert.ok(T.playerReachable(L, L.checkpoints[1], L.objective));
   assert.ok(T.findPath(L, 0, -6, 0, -12), 'البوابة مفتوحة للحراس');
+});
+
+test('البوابة: تنفتح بس لما تتعطل كشافات البرجين، وتبقى مفتوحة بعد الإمساك', () => {
+  const L = T.makeLevel(LEVEL1); const S = T.newGame(L);
+  assert.strictEqual(S.gateOpen, false);
+  assert.ok(L.obstacles.some(o => o.lock));
+  S.lights[1].dead = true; T.applyGate(S);
+  assert.strictEqual(S.gateOpen, false, 'كشاف واحد ما يكفي');
+  S.lights[2].dead = true; T.applyGate(S);
+  assert.strictEqual(S.gateOpen, true);
+  assert.ok(S.events.some(e => e.t === 'gate_open'));
+  assert.ok(!L.obstacles.some(o => o.lock));
+  // نقطة حفظ داخل المجمّع ثم ينمسك: البوابة تبقى مفتوحة
+  S.guards = []; S.player.x = 0; S.player.z = -12; T.update(S, {}, 1 / 60);
+  T.resetToCheckpoint(S);
+  assert.strictEqual(S.gateOpen, true);
+});
+
+test('الغرفة: المذكرات تنقرا، وتشغيل التسجيل ياخذ وقت وبعدين يفوز', () => {
+  const L = T.makeLevel(LEVEL1); const S = T.newGame(L); S.guards = [];
+  const n = L.notes[0]; S.player.x = n.x; S.player.z = n.z;
+  assert.strictEqual(T.action(S).kind, 'read'); T.doAction(S);
+  assert.ok(S.notesRead[0]); assert.ok(S.events.some(e => e.t === 'note'));
+  S.player.x = L.objective.x; S.player.z = L.objective.z;
+  assert.ok(T.inRoom(S));
+  assert.strictEqual(T.objectiveText(S), 'عطّل كشافات الأبراج · ٠ من ٢');
+  const a = T.action(S); assert.strictEqual(a.kind, 'play'); T.doAction(S);
+  run(S, 1); assert.strictEqual(S.status, 'play', 'لسا يشتغل');
+  run(S, 2); assert.strictEqual(S.status, 'won');
+});
+
+test('المهمة الأولى: البرجين اللي يفتحون البوابة يوصل لهم والبوابة مقفلة', () => {
+  const L = T.makeLevel(LEVEL1); T.newGame(L);
+  for (const id of ['post', 'tower2']) assert.ok(T.playerReachable(L, L.start, L.ladders.find(l => l.id === id)), id);
+  assert.ok(T.playerReachable(L, L.start, L.generator));
 });

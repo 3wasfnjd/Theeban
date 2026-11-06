@@ -132,7 +132,10 @@ function serve() {
   const enabled = await page.evaluate(() => !document.getElementById('act').disabled);
   enabled ? ok('زر التفاعل يتفعل عند التسجيل') : fail('زر التفاعل مقفول عند الهدف');
   await page.tap('#act');
-  await page.waitForTimeout(6000);
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: path.join(OUT, 'shot-6b-playing.png') });
+  await page.waitForFunction(() => !document.getElementById('won').hidden, null, { timeout: 40000 }).catch(() => {});
+  await page.waitForTimeout(4000);
   const won = await page.evaluate(() => !document.getElementById('won').hidden);
   won ? ok('شاشة نهاية المهمة ظهرت') : fail('شاشة النهاية ما ظهرت');
   await page.screenshot({ path: path.join(OUT, 'shot-7-ending.png') });

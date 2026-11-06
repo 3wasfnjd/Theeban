@@ -70,8 +70,9 @@
 
   T.makeLevel = function (data) {
     const L = Object.assign({}, data);
-    L.obstacles = data.obstacles.map(normObstacle);
-    L.ladders = (data.ladders || []).map(l => Object.assign({}, l, { obs: L.obstacles.find(o => Math.abs(o.x - l.plat.x) < 0.01 && Math.abs(o.z - l.plat.z) < 0.01) || null }));
+    L.allObstacles = data.obstacles.map(normObstacle);
+    L.obstacles = L.allObstacles;
+    L.ladders = (data.ladders || []).map(l => Object.assign({}, l, { obs: L.allObstacles.find(o => Math.abs(o.x - l.plat.x) < 0.01 && Math.abs(o.z - l.plat.z) < 0.01) || null }));
     L.grid = buildGrid(L, 0.5);
     return L;
   };
@@ -195,6 +196,7 @@
       picked: {}, shots: [], clouds: [],
       checkpoint: { x: L.start.x, z: L.start.z, idx: -1, gas: L.gasStart || 0, picked: {} },
       guards: [], events: [], radioDone: {}, caughtT: 0, catches: 0, objectiveTaken: false,
+      gateOpen: !(L.gateLights || []).length, notesRead: {},
       lights: newLights(L), alarm: { on: false, t: 0, x: 0, z: 0 }, power: { off: false, t: 0 }, action: null
     };
     S.guards = L.guards.map((g, i) => newGuard(g, i));
@@ -218,7 +220,7 @@
     P.mode = 'ground'; P.climb = null; P.hide = null; P.gas = S.checkpoint.gas; S.picked = Object.assign({}, S.checkpoint.picked); S.shots = []; S.clouds = [];
     S.guards = S.L.guards.map((g, i) => newGuard(g, i));
     S.status = 'play'; S.caughtT = 0; S.subdue = null;
-    S.lights = newLights(S.L); S.alarm = { on: false, t: 0, x: 0, z: 0 }; S.power = { off: false, t: 0 }; S.action = null;
+    S.lights = newLights(S.L); (S.checkpoint.dead || []).forEach((d, i) => { if (d && S.lights[i]) S.lights[i].dead = true; }); applyGate(S, true); S.alarm = { on: false, t: 0, x: 0, z: 0 }; S.power = { off: false, t: 0 }; S.action = null;
     S.events.push({ t: 'respawn' });
   };
 
@@ -309,7 +311,9 @@
       if (near(l.top, 0.9)) return { kind: 'down' };
       return null;
     }
-    if (T.canInteract(S)) return { kind: 'take' };
+    if (T.canInteract(S)) return { kind: 'play', need: 2.6 };
+    const ni = (S.L.notes || []).findIndex(n => near(n, 1.0));
+    if (ni >= 0) return { kind: 'read', note: ni };
     if (S.alarm.on && (S.L.panels || []).some(p => near(p, 1.6))) return { kind: 'panel', need: 1.0 };
     if (!S.power.off && near(S.L.generator, 1.8)) return { kind: 'gen', need: 1.2 };
     const lad = (S.L.ladders || []).find(l => near(l, 1.0));
@@ -322,6 +326,7 @@
   T.doAction = function (S) {
     const a = T.action(S); if (!a) return false;
     if (a.kind === 'take') return T.interact(S);
+    if (a.kind === 'read') { const n = S.L.notes[a.note]; S.notesRead[a.note] = 1; S.events.push({ t: 'note', i: a.note, title: n.title, text: n.text }); return true; }
     if (a.kind === 'subdue') return T.startSubdue(S);
     const P = S.player;
     if (a.kind === 'climb') { const l = a.ladder; P.mode = 'climb'; P.ladder = l; P.x = l.x; P.z = l.z; P.dir = l.face; P.stance = 'stand'; P.moving = 0; P.climb = { phase: 'mount', t: 0 }; S.events.push({ t: 'climb' }); return true; }
@@ -336,8 +341,9 @@
     const A = S.action; A.t += dt;
     if (A.t < A.need) return;
     S.action = null;
+    if (A.kind === 'play') { T.interact(S); return; }
     if (A.kind === 'panel') alarmOff(S, 'panel');
-    if (A.kind === 'light') { const li = S.player.ladder.light; S.lights[li].dead = true; S.lights[li].meter = 0; S.events.push({ t: 'light_dead', light: li }); }
+    if (A.kind === 'light') { const li = S.player.ladder.light; S.lights[li].dead = true; S.lights[li].meter = 0; S.events.push({ t: 'light_dead', light: li }); applyGate(S); }
     if (A.kind === 'gen') {
       S.power.off = true; S.power.t = 25;
       S.events.push({ t: 'power_off' });
@@ -438,6 +444,26 @@
       if (!S.picked[i] && P.mode === 'ground' && len(P.x - p.x, P.z - p.z) < 0.9) { S.picked[i] = 1; P.gas++; S.events.push({ t: 'gas_pick', n: P.gas }); }
     });
   }
+
+  // ---------- البوابة المقفلة ----------
+  // بوابة المجمّع وشبك الأنابيب مقفولة لين تتعطل كشافات الأبراج (L.gateLights). بعدها تنشال من العوائق.
+  function applyGate(S, silent) {
+    const L = S.L, need = L.gateLights || [];
+    const open = need.every(i => S.lights[i] && S.lights[i].dead);
+    const was = S.gateOpen;
+    S.gateOpen = open;
+    L.obstacles = open ? L.allObstacles.filter(o => !o.lock) : L.allObstacles;
+    if (was !== open || silent) L.grid = buildGrid(L, 0.5);
+    if (open && !was && !silent) S.events.push({ t: 'gate_open' });
+  }
+  T.applyGate = applyGate;
+  T.gateProgress = function (S) { const n = S.L.gateLights || []; return { done: n.filter(i => S.lights[i] && S.lights[i].dead).length, total: n.length }; };
+  T.inRoom = function (S) { const R = S.L.room, P = S.player; return !!R && (P.y || 0) < 0.5 && Math.abs(P.x - R.x) < R.w / 2 && Math.abs(P.z - R.z) < R.d / 2; };
+  T.objectiveText = function (S) {
+    if (S.objectiveTaken) return 'تم';
+    if (!S.gateOpen) { const g = T.gateProgress(S), ar = n => String(n).replace(/[0-9]/g, d => '٠١٢٣٤٥٦٧٨٩'[d]); return `عطّل كشافات الأبراج · ${ar(g.done)} من ${ar(g.total)}`; }
+    return T.inRoom(S) ? 'شغّل التسجيل' : 'ادخل غرفة الاتصالات';
+  };
 
   T.canInteract = function (S) {
     const o = S.L.objective, P = S.player;
@@ -727,7 +753,7 @@
     const P = S.player, L = S.L;
     L.checkpoints.forEach((c, i) => {
       if (i > S.checkpoint.idx && len(P.x - c.x, P.z - c.z) < c.r) {
-        S.checkpoint = { x: c.x, z: c.z, idx: i, gas: P.gas, picked: Object.assign({}, S.picked) }; S.events.push({ t: 'checkpoint', i });
+        S.checkpoint = { x: c.x, z: c.z, idx: i, gas: P.gas, picked: Object.assign({}, S.picked), dead: S.lights.map(l => !!l.dead) }; S.events.push({ t: 'checkpoint', i });
       }
     });
     (L.radio || []).forEach((r, i) => {

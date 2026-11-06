@@ -220,8 +220,11 @@
       for (const [a, b, ww, dd] of [[0, -w, o.w, 0.08], [0, w, o.w, 0.08], [-w, 0, 0.08, o.d], [w, 0, 0.08, o.d]]) g.add(bx(ww, 0.9, dd, 0x5c4630, a, H + 0.55, b));
       for (const [a, b] of [[-w, -w], [w, -w], [w, w], [-w, w]]) g.add(bx(0.1, 1.9, 0.1, 0x4a3a2a, a, H + 1.05, b));
       const roof = new THREE.Mesh(new THREE.BoxGeometry(o.w + 0.5, 0.15, o.d + 0.5), new THREE.MeshLambertMaterial({ color: 0x3a2e22, flatShading: true, transparent: true })); roof.position.y = H + 2.05; g.add(roof); g.userData.roof = roof;
-      for (let y = 0.4; y < H; y += 0.45) g.add(bx(0.7, 0.06, 0.06, 0x6b5238, 0, y, o.d / 2 + 0.15));
-      g.add(bx(0.06, H, 0.06, 0x6b5238, -0.33, H / 2, o.d / 2 + 0.15), bx(0.06, H, 0.06, 0x6b5238, 0.33, H / 2, o.d / 2 + 0.15));
+      const lad = new THREE.Group(); g.add(lad); // السلّم: جنوب (افتراضي) أو شرق
+      for (let y = 0.4; y < H; y += 0.45) lad.add(bx(0.7, 0.06, 0.06, 0x6b5238, 0, y, o.d / 2 + 0.15));
+      lad.add(bx(0.06, H, 0.06, 0x6b5238, -0.33, H / 2, o.d / 2 + 0.15), bx(0.06, H, 0.06, 0x6b5238, 0.33, H / 2, o.d / 2 + 0.15));
+      if (o.ladder === 'east') lad.rotation.y = Math.PI / 2;
+      roof.userData.at = [o.x, o.z];
       g.position.set(o.x, 0, o.z); return shade(g);
     },
     truck(o) { // وانيت عسكري مهجور

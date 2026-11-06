@@ -52,6 +52,15 @@
   }
   function muteAmbience() { if (AMB.on && ac) { const t = ac.currentTime; AMB.drone.gain.setTargetAtTime(0, t, 0.3); AMB.siren.gain.setTargetAtTime(0, t, 0.2); } }
 
+  // صوت التسجيل: تشويش وصوت بعيد (مولّد)
+  function playStatic() {
+    const a = audio(); if (!a) return;
+    const len = 2.6, buf = a.createBuffer(1, a.sampleRate * len, a.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) { const t = i / a.sampleRate; const voice = Math.sin(2 * Math.PI * (140 + 30 * Math.sin(t * 5)) * t) * (0.5 + 0.5 * Math.sin(t * 9)) * (t > 0.6 ? 0.35 : 0); d[i] = (Math.random() * 2 - 1) * 0.25 + voice; }
+    const src = a.createBufferSource(); src.buffer = buf;
+    const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1200; bp.Q.value = 0.8;
+    const g = a.createGain(); g.gain.value = 0.18; src.connect(bp).connect(g).connect(a.destination); src.start();
+  }
   const SFX = {
     sus: () => { tone(520, 0.14, 'triangle', 0.12); tone(700, 0.18, 'triangle', 0.12, 0, 0.13); },
     alert: () => { tone(880, 0.12, 'square', 0.1); tone(660, 0.12, 'square', 0.1, 0, 0.12); tone(880, 0.2, 'square', 0.1, 0, 0.24); },
@@ -81,14 +90,20 @@
   const ICON_LIGHT = '<path d="M5 9h6l4-4v14l-4-4H5zM18 8l3-2M18 16l3 2M3 3l18 18"/>';
   const ICON_CAR = '<path d="M3 16v-4l2-5h14l2 5v4zM6 16v2M18 16v2M3 12h18"/>';
   const ICON_OUT = '<path d="M10 4H5v16h5M14 8l4 4-4 4M18 12H9"/>';
-  const ACT = { take: ['تفاعل', ICON_HAND], subdue: ['تخدير', ICON_SUB], panel: ['أطفئ', ICON_BELL], gen: ['اقطع', ICON_BOLT],
+  const ICON_PLAY = '<rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="8.5" cy="12" r="2"/><circle cx="15.5" cy="12" r="2"/><path d="M8.5 14h7"/>';
+  const ICON_NOTE = '<path d="M6 3h9l4 4v14H6zM14 3v5h5M9 12h7M9 16h5"/>';
+  const ACT = { play: ['شغّل', ICON_PLAY], read: ['اقرأ', ICON_NOTE], take: ['تفاعل', ICON_HAND], subdue: ['تخدير', ICON_SUB], panel: ['أطفئ', ICON_BELL], gen: ['اقطع', ICON_BOLT],
     climb: ['تسلق', ICON_UP], down: ['انزل', ICON_DOWN], light: ['عطّل', ICON_LIGHT], hide: ['اختبي', ICON_CAR], exit: ['اطلع', ICON_OUT], throw: ['رمي', ICON_HAND], none: ['تفاعل', ICON_HAND] };
   let radioT = 0, toastT = 0, lastLevel = 0, alarmHint = 0;
 
   function showRadio(who, text) { $('radioWho').textContent = who + ':'; $('radioTxt').textContent = text; $('radio').classList.add('on'); radioT = 4 + text.length * 0.05; SFX.radio(); }
   function toast(text, sec) { $('toast').textContent = text; $('toast').classList.add('on'); toastT = sec || 1.6; }
 
+  let noteT = 0;
+  function showNote(title, text) { $('noteTitle').textContent = title; $('noteText').textContent = text; $('note').classList.add('on'); noteT = 7; tone(1500, 0.06, 'triangle', 0.05); }
   function updateHud(dt) {
+    const ot = TH.objectiveText(S); if ($('objTxt').textContent !== ot) $('objTxt').textContent = ot;
+    if (noteT > 0 && ((noteT -= dt) <= 0 || S.player.moving)) { noteT = 0; $('note').classList.remove('on'); }
     const a = TH.alertLevel(S);
     const pill = $('pill'); pill.textContent = STATE_TXT[a.level]; pill.className = a.level ? 's' + a.level : '';
     const mi = $('meter').firstElementChild; mi.style.width = Math.round(a.meter * 100) + '%'; mi.style.background = a.level === 2 ? 'var(--alert)' : 'var(--sus)';
@@ -150,6 +165,9 @@
       else if (e.t === 'power_off') { SFX.power(); toast('انقطعت الكهربا', 1.3); ctx.shake = 0.25; }
       else if (e.t === 'power_on') { tone(200, 0.4, 'sawtooth', 0.06, 600); toast('رجعت الكهربا', 1.2); }
       else if (e.t === 'gas_pick') { SFX.cp(); toast('+1 غاز', 1); }
+      else if (e.t === 'note') showNote(e.title, e.text);
+      else if (e.t === 'gate_open') { SFX.won(); toast('انفتحت البوابة', 1.6); showRadio('برق', 'البوابة انفتحت! ادخل المجمّع.'); ctx.shake = 0.3; }
+      else if (e.t === 'action_start' && e.kind === 'play') playStatic();
       else if (e.t === 'gas_throw') tone(500, 0.15, 'triangle', 0.06, 900);
       else if (e.t === 'gas_land') { tone(160, 0.4, 'sawtooth', 0.05, 60); W.noiseRing(ctx, e.x, e.z, 6); }
       else if (e.t === 'gassed') { SFX.subdue(); toast('نام بالغاز', 1.1); }
@@ -234,7 +252,7 @@
 
   function newRun() {
     S = TH.newGame(TH.makeLevel(root.LEVEL1));
-    $('objTxt').textContent = S.L.objectiveText;
+    $('objTxt').textContent = TH.objectiveText(S);
     if (!ctx) ctx = W.build($('c'), S); else { W.syncGuards(ctx, S); W.snapCamera(ctx, S); }
     startedAt = performance.now();
   }
