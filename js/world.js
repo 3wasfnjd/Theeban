@@ -210,7 +210,7 @@
 
     // العوائق
     const r = rng(42);
-    const ROOMK = { rwall: 1, f_rack: 1, f_desk: 1, f_desk2: 1, f_shelf: 1, f_table: 1 };
+    const ROOMK = { rroof: 1, rwall: 1, f_rack: 1, f_desk: 1, f_desk2: 1, f_shelf: 1, f_table: 1 };
     const gates = [];
     for (const o of L.allObstacles || L.obstacles) {
       let m;
@@ -375,7 +375,7 @@
     // الهدف ونقاط الحفظ
     const pul = 1 + Math.sin(t * 3) * 0.12;
     ctx.ring.scale.set(pul, pul, pul); ctx.rec.visible = !S.objectiveTaken;
-    ctx.cps.forEach((m, i) => { m.material.color.setHex(i <= S.checkpoint.idx ? COL.teal : 0x8aa0b0); m.material.opacity = i <= S.checkpoint.idx ? 0.6 : 0.35; });
+    ctx.cps.forEach((m, i) => { const cur = i === S.checkpoint.idx; m.material.color.setHex(cur ? COL.teal : 0x8aa0b0); m.material.opacity = cur ? 0.7 : 0.3; });
     if (W.blink) W.blink.visible = Math.floor(t * 1.4) % 2 === 0;
 
     // حلقات الصوت

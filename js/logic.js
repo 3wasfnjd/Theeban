@@ -752,7 +752,7 @@
   function checkZones(S) {
     const P = S.player, L = S.L;
     L.checkpoints.forEach((c, i) => {
-      if (i > S.checkpoint.idx && len(P.x - c.x, P.z - c.z) < c.r) {
+      if (i !== S.checkpoint.idx && P.mode === 'ground' && len(P.x - c.x, P.z - c.z) < c.r) { // آخر نقطة يمر عليها هي اللي تنحفظ
         S.checkpoint = { x: c.x, z: c.z, idx: i, gas: P.gas, picked: Object.assign({}, S.picked), dead: S.lights.map(l => !!l.dead) }; S.events.push({ t: 'checkpoint', i });
       }
     });

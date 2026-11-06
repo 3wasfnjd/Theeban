@@ -289,7 +289,7 @@ test('البوابة: تنفتح بس لما تتعطل كشافات البرج�
   assert.ok(S.events.some(e => e.t === 'gate_open'));
   assert.ok(!L.obstacles.some(o => o.lock));
   // نقطة حفظ داخل المجمّع ثم ينمسك: البوابة تبقى مفتوحة
-  S.guards = []; S.player.x = 0; S.player.z = -12; T.update(S, {}, 1 / 60);
+  S.guards = []; S.player.x = -2.4; S.player.z = -15.3; T.update(S, {}, 1 / 60);
   T.resetToCheckpoint(S);
   assert.strictEqual(S.gateOpen, true);
 });
@@ -311,4 +311,28 @@ test('المهمة الأولى: البرجين اللي يفتحون البوا
   const L = T.makeLevel(LEVEL1); T.newGame(L);
   for (const id of ['post', 'tower2']) assert.ok(T.playerReachable(L, L.start, L.ladders.find(l => l.id === id)), id);
   assert.ok(T.playerReachable(L, L.start, L.generator));
+});
+
+test('نقاط الحفظ: بعيدة عن دوريات الحراس، ما تنشاف من مساراتهم، ولا يوصلها الكشاف', () => {
+  const L = T.makeLevel(LEVEL1);
+  const samples = [];
+  for (const g of L.guards) {
+    const r = g.route, range = T.GUARD_TYPES[g.type].range;
+    if (r.length === 1) { samples.push([r[0][0], r[0][1], range]); continue; }
+    const segs = r.length === 2 ? 1 : r.length;
+    for (let i = 0; i < segs; i++) { const a = r[i], b = r[(i + 1) % r.length], n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1])); for (let k = 0; k <= n; k++) samples.push([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n, range]); }
+  }
+  for (const c of L.checkpoints) {
+    for (const [x, z, range] of samples) {
+      const d = Math.hypot(c.x - x, c.z - z);
+      const hidden = T.blocked(L.allObstacles, x, z, T.EYE, c.x, c.z, 1.5);
+      assert.ok(d >= 6 || hidden, `نقطة (${c.x},${c.z}) قريبة ومكشوفة لدورية (${x.toFixed(1)},${z.toFixed(1)})`);
+      if (d < range) assert.ok(T.blocked(L.allObstacles, x, z, T.EYE, c.x, c.z, 1.5), `نقطة (${c.x},${c.z}) تنشاف من (${x.toFixed(1)},${z.toFixed(1)})`);
+    }
+    for (const l of L.searchlights) {
+      const inSweep = Math.abs(c.x - l.cx) < l.ax + l.r + c.r && Math.abs(c.z - l.cz) < l.az + l.r + c.r;
+      assert.ok(!inSweep || T.blocked(L.allObstacles, l.sx, l.sz, l.sh, c.x, c.z, 1.5), `نقطة (${c.x},${c.z}) في مسح كشاف`);
+    }
+    assert.ok(T.playerReachable(L, L.start, c) || (() => { const S = T.newGame(L); L.gateLights.forEach(i => { S.lights[i].dead = true; }); T.applyGate(S); return T.playerReachable(L, L.start, c); })(), `نقطة (${c.x},${c.z}) ما يوصل لها`);
+  }
 });
