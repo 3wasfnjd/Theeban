@@ -137,7 +137,7 @@
   }
 
   function makeGuard(type) {
-    const root = new THREE.Group(), pose = new THREE.Group(); root.add(pose);
+    const root = new THREE.Group(), pose = new THREE.Group(); root.add(pose); root.userData.type = type;
     const wide = type === 'heavy' ? 1.35 : type === 'scout' ? 0.85 : 1;
     const color = COL[type];
     const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.85, 4, 10), mat(color)); body.scale.set(wide, 1, wide); body.position.y = 0.75; body.castShadow = true; pose.add(body);
@@ -151,7 +151,7 @@
     // علامة الحالة فوق الراس
     const icon = new THREE.Sprite(new THREE.SpriteMaterial({ map: iconTex('?', '#f2c23a'), depthTest: false, transparent: true }));
     icon.scale.set(0.8, 0.8, 1); icon.position.y = 2.35; icon.visible = false; icon.renderOrder = 5; root.add(icon);
-    root.userData = { pose, icon };
+    root.userData = { pose, icon, type };
     return root;
   }
 
@@ -251,6 +251,7 @@
     const capMat = new THREE.MeshLambertMaterial({ color: 0x8fd0a0, emissive: 0x1a3a22 });
     ctxRef.capProto = new THREE.Mesh(capGeo, capMat);
     W.loadCapsule(ctxRef);
+    W.loadGuards(ctxRef);
     const pickups = (L.gasPickups || []).map(p => {
       const g = new THREE.Group(); g.position.set(p.x, 0, p.z);
       const holder = new THREE.Group(); holder.position.y = 0.45; holder.scale.setScalar(3.2); g.add(holder);
@@ -297,6 +298,7 @@
       const m = makeGuard(g.type); ctx.scene.add(m); ctx.guards.push(m);
       const c = makeCone(ctx.RAYS); ctx.scene.add(c); ctx.cones.push(c);
     }
+    if (ctx.guardBuf) W.fitGuards(ctx);
   };
 
   W.resize = function (ctx) {
@@ -349,11 +351,14 @@
     S.guards.forEach((g, i) => {
       const m = ctx.guards[i], gp = m.userData.pose, out = g.state === 'out'; m.position.set(g.x, 0, g.z); m.rotation.y = g.dir;
       const held = S.subdue && S.subdue.g === i;
-      const lyX = out ? Math.PI / 2 : 0;
-      gp.rotation.x += (lyX - gp.rotation.x) * Math.min(1, dt * 8);
-      gp.rotation.z = held ? Math.sin(t * 38) * 0.12 : 0;
-      gp.position.y = out ? 0.32 : Math.abs(Math.sin(t * 7 + i)) * 0.04;
-      gp.position.z = 0;
+      if (m.userData.anim) W.animateGuard(ctx, S, g, m, dt, held);
+      else {
+        const lyX = out ? Math.PI / 2 : 0;
+        gp.rotation.x += (lyX - gp.rotation.x) * Math.min(1, dt * 8);
+        gp.rotation.z = held ? Math.sin(t * 38) * 0.12 : 0;
+        gp.position.y = out ? 0.32 : Math.abs(Math.sin(t * 7 + i)) * 0.04;
+        gp.position.z = 0;
+      }
       const ic = m.userData.icon;
       ic.visible = g.state !== 'calm';
       if (ic.visible) { ic.material.map = out ? iconTex('Z', '#8ab4ff') : g.state === 'alert' ? iconTex('!', '#ff4d3d') : iconTex('?', '#f2c23a'); ic.position.y = (out ? 1.0 : 2.35) + Math.sin(t * (out ? 2 : 5)) * 0.08; }
@@ -478,6 +483,68 @@
       if (ctx.shotsG) ctx.shotsG.clear();
     }, undefined, () => {});
   };
+  // ---------- موديل الحارس (GLB) ----------
+  // ملف واحد لكل الحراس: نحمّله مرة ونفكّه لكل حارس (كل واحد له هيكله وحركاته). شارة على الذراع تفرّق النوع.
+  const BAND = { scout: 0xf0c03a, heavy: 0xb03020, tech: 0xf4f4f0 };
+  const GUARD_ONCE = ['alert', 'spot', 'gassed', 'subdued'];
+  W.loadGuards = function (ctx) {
+    if (!THREE.GLTFLoader || !THREE.FileLoader) return;
+    const fl = new THREE.FileLoader(); fl.setResponseType('arraybuffer');
+    fl.load('assets/characters/guard.glb?v=' + (root.TH_VERSION || '1'), buf => { ctx.guardBuf = buf; W.fitGuards(ctx); }, undefined, () => {});
+  };
+  W.fitGuards = function (ctx) {
+    if (!ctx.guardBuf || !ctx.guards) return;
+    ctx.guards.forEach((m, i) => {
+      if (m.userData.anim || m.userData.loading) return;
+      m.userData.loading = true;
+      new THREE.GLTFLoader().parse(ctx.guardBuf.slice(0), '', gltf => {
+        const model = gltf.scene, bones = {};
+        model.traverse(o => {
+          if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; const mt = o.material; if (mt) { mt.metalness = 0; mt.roughness = 1; if (mt.map) { mt.map.encoding = THREE.LinearEncoding; mt.map.needsUpdate = true; } } }
+          if (o.isBone) bones[o.name] = o;
+        });
+        const type = m.userData.type;
+        if (type === 'heavy') model.scale.set(1.12, 1.04, 1.12);
+        if (type === 'scout') model.scale.set(0.94, 1.0, 0.94);
+        const arm = bones.LeftArm;
+        if (arm) { const band = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.09, 10), new THREE.MeshBasicMaterial({ color: BAND[type] || 0xffffff })); band.rotation.z = Math.PI / 2; band.position.set(0.12, 0, 0); arm.add(band); }
+        const pose = m.userData.pose; pose.clear(); pose.position.set(0, 0, 0); pose.rotation.set(0, 0, 0); pose.add(model);
+        const mixer = new THREE.AnimationMixer(model), actions = {};
+        for (const c of gltf.animations) { const a = mixer.clipAction(c); actions[c.name] = a; if (GUARD_ONCE.includes(c.name)) { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; } }
+        m.userData.anim = { mixer, actions, cur: null, last: [0, 0], outClip: null };
+        W.playHero(m.userData.anim, 'idle', 0);
+      }, () => { m.userData.loading = false; });
+    });
+  };
+  W.animateGuard = function (ctx, S, g, m, dt, held) {
+    const A = m.userData.anim, moved = Math.hypot(g.x - A.last[0], g.z - A.last[1]) / Math.max(dt, 1e-3); A.last = [g.x, g.z];
+    const speed = moved > 6 ? 0 : moved; // قفزة الرجوع لنقطة الحفظ ما تحسب
+    let clip, fade = 0.25;
+    if (g.state === 'out' || held) {
+      const first = held ? 'subdued' : g.outBy === 'gas' ? 'gassed' : 'subdued';
+      if (A.cur !== first && A.cur !== 'sleep') clip = first;
+      else if (A.cur === first && A.actions[first] && !A.actions[first].isRunning()) clip = 'sleep';
+      else clip = A.cur;
+      fade = 0.15;
+    }
+    else if (g.state === 'alert') {
+      if (A.prevState !== 'alert' && speed < 1) clip = 'alert';
+      else clip = speed > 0.3 ? 'run' : (A.cur === 'alert' && A.actions.alert.isRunning() ? 'alert' : 'spot');
+    }
+    else if (g.state === 'suspicious') clip = g.seen ? 'spot' : speed > 0.3 ? 'patrol_walk' : (S.alarm && S.alarm.on ? 'radio' : 'idle');
+    else clip = speed > 0.3 ? 'patrol_walk' : 'idle';
+    if (A.prevState === 'out' && g.state !== 'out') fade = 0.6; // يقوم من النوم
+    A.prevState = held ? 'out' : g.state;
+    if (!A.actions[clip]) clip = 'idle';
+    if (clip === 'spot' && A.cur === 'spot' && !A.actions.spot.isRunning()) { /* يبقى على آخر وضعية */ }
+    W.playHero(A, clip, fade);
+    const a = A.actions[clip];
+    if (clip === 'patrol_walk') a.timeScale = Math.max(0.6, Math.min(1.8, speed / 1.75));
+    else if (clip === 'run') a.timeScale = Math.max(0.8, Math.min(1.5, speed / 4));
+    else a.timeScale = 1;
+    A.mixer.update(dt);
+  };
+
   W.playHero = function (H, name, fade) {
     if (H.cur === name || !H.actions[name]) return;
     const next = H.actions[name], prev = H.cur && H.actions[H.cur];

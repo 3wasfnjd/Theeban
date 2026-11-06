@@ -266,7 +266,7 @@
     sd.t += dt;
     if (!g || g.state === 'alert') { S.subdue = null; return; }
     if (sd.t >= sd.need) {
-      g.state = 'out'; g.outT = T.OUT_TIME; g.meter = 0; g.target = null; g.path = null; g.noticed = false;
+      g.state = 'out'; g.outT = T.OUT_TIME; g.meter = 0; g.target = null; g.path = null; g.noticed = false; g.outBy = 'subdue';
       S.subdue = null; S.subdued = (S.subdued || 0) + 1;
       S.events.push({ t: 'subdued', g: g.id });
     }
@@ -435,7 +435,7 @@
       const inC = S.clouds.some(c => len(g.x - c.x, g.z - c.z) < c.r * Math.min(1, 0.4 + c.t * 1.5));
       g.gasT = inC ? (g.gasT || 0) + dt : Math.max(0, (g.gasT || 0) - dt);
       if (g.gasT >= (T.GAS.sleep[g.type] || 1)) {
-        g.state = 'out'; g.outT = T.OUT_TIME; g.meter = 0; g.target = null; g.path = null; g.noticed = false; g.gasT = 0;
+        g.state = 'out'; g.outT = T.OUT_TIME; g.meter = 0; g.target = null; g.path = null; g.noticed = false; g.gasT = 0; g.outBy = 'gas';
         S.subdued = (S.subdued || 0) + 1; S.events.push({ t: 'gassed', g: g.id });
       }
     }

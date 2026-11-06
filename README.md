@@ -53,9 +53,7 @@
 |---|---|
 | `assets/characters/theeban.glb` | ذيبان ✓ مركّب (19 حركة: تسلق، سيارة، رمي غاز) |
 | `assets/props/gas_capsule.glb` | كبسولة الغاز ✓ |
-| `assets/characters/scout.glb` | الكشاف |
-| `assets/characters/heavy.glb` | الحارس الثقيل |
-| `assets/characters/tech.glb` | الفني |
+| `assets/characters/guard.glb` | الحراس ✓ مركّب (ملف واحد للثلاثة، 9 حركات، وشارة ذراع: أصفر كشاف · أحمر ثقيل · أبيض فني) |
 
 **المطلوب في كل موديل:**
 - صيغة GLB، الطول تقريباً 1.8 م، الوجه لقدام (+Z)، والقدمين على الأرض.
