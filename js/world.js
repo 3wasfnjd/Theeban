@@ -487,17 +487,23 @@
   // ملف واحد لكل الحراس: نحمّله مرة ونفكّه لكل حارس (كل واحد له هيكله وحركاته). شارة على الذراع تفرّق النوع.
   const BAND = { scout: 0xf0c03a, heavy: 0xb03020, tech: 0xf4f4f0 };
   const GUARD_ONCE = ['alert', 'spot', 'gassed', 'subdued'];
+  // الكشاف بلبس صحراوي ونظارة (guard2)، والثقيل والفني باللبس الداكن (guard)
+  const GUARD_FILE = { scout: 'guard2.glb', heavy: 'guard.glb', tech: 'guard.glb' };
   W.loadGuards = function (ctx) {
     if (!THREE.GLTFLoader || !THREE.FileLoader) return;
-    const fl = new THREE.FileLoader(); fl.setResponseType('arraybuffer');
-    fl.load('assets/characters/guard.glb?v=' + (root.TH_VERSION || '1'), buf => { ctx.guardBuf = buf; W.fitGuards(ctx); }, undefined, () => {});
+    ctx.guardBufs = {};
+    for (const f of new Set(Object.values(GUARD_FILE))) {
+      const fl = new THREE.FileLoader(); fl.setResponseType('arraybuffer');
+      fl.load('assets/characters/' + f + '?v=' + (root.TH_VERSION || '1'), buf => { ctx.guardBufs[f] = buf; ctx.guardBuf = true; W.fitGuards(ctx); }, undefined, () => {});
+    }
   };
   W.fitGuards = function (ctx) {
-    if (!ctx.guardBuf || !ctx.guards) return;
+    if (!ctx.guardBufs || !ctx.guards) return;
     ctx.guards.forEach((m, i) => {
-      if (m.userData.anim || m.userData.loading) return;
+      const buf = ctx.guardBufs[GUARD_FILE[m.userData.type] || 'guard.glb'];
+      if (!buf || m.userData.anim || m.userData.loading) return;
       m.userData.loading = true;
-      new THREE.GLTFLoader().parse(ctx.guardBuf.slice(0), '', gltf => {
+      new THREE.GLTFLoader().parse(buf.slice(0), '', gltf => {
         const model = gltf.scene, bones = {};
         model.traverse(o => {
           if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; const mt = o.material; if (mt) { mt.metalness = 0; mt.roughness = 1; if (mt.map) { mt.map.encoding = THREE.LinearEncoding; mt.map.needsUpdate = true; } } }
