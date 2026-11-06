@@ -434,6 +434,10 @@
     // الكاميرا تتبع ذيبان (وتقرب شوي وهو منحني)، تهتز مع الإنذار، ولقطة افتتاحية فوق الموقع
     const zoom = P.stance === 'crawl' ? 0.88 : P.stance === 'crouch' ? 0.94 : 1;
     ctx.zoom = (ctx.zoom || 1) + (zoom - (ctx.zoom || 1)) * Math.min(1, dt * 3);
+    const V = ctx.view;
+    if (V && V.mode !== 'top' && !(ctx.intro > 0)) { viewCamera(ctx, S, dt, V); return; }
+    if (ctx.camera.fov !== 42) { ctx.camera.fov = 42; ctx.camera.near = 0.5; ctx.camera.updateProjectionMatrix(); }
+    if (ctx.viewHid) { ctx.player.visible = true; ctx.viewHid = false; }
     camTarget(ctx, S, tmp); tmp.y *= ctx.zoom; tmp.z = P.z + (tmp.z - P.z) * ctx.zoom;
     ctx.camPos.lerp(tmp, Math.min(1, dt * 4));
     const look = tmp2.set(ctx.camPos.x, 0, ctx.camPos.z - (tmp.z - P.z) - 1.2);
@@ -456,6 +460,62 @@
 
     ctx.renderer.render(ctx.scene, ctx.camera);
   };
+
+  // ---------- المناظير: شخص ثالث · فوق الكتف · شخص أول ----------
+  // yaw بنفس اتجاه ذيبان (0 = +z)، pitch موجب = تطالع لتحت. الكاميرا ما تخترق الجدران (تقرب لين قبل الجدار).
+  const EYE = { stand: 1.62, crouch: 1.05, crawl: 0.42 };
+  const VIEWS = {
+    tps: { fov: 60, dist: 4.4, up: 0.55, side: 0, pmin: -0.25, pmax: 1.0 },
+    ots: { fov: 55, dist: 2.1, up: 0.2, side: 0.62, pmin: -0.45, pmax: 0.85 },
+    fps: { fov: 70, dist: 0, up: 0, side: 0, pmin: -1.2, pmax: 1.15 }
+  };
+  const vPiv = new THREE.Vector3(), vCam = new THREE.Vector3(), vLook = new THREE.Vector3();
+  function camHit(L, x0, y0, z0, x1, y1, z1) { // أول جدار بين المحور والكاميرا (0..1)
+    let tm = 1;
+    for (const o of L.obstacles) {
+      if (o.kind === 'hidden' && o.h > 6) continue;
+      const s = TH.segBox(x0, z0, x1, z1, { x: o.x, z: o.z, w: o.w + 0.3, d: o.d + 0.3 });
+      if (!s || s[0] >= tm) continue;
+      const y = y0 + (y1 - y0) * s[0];
+      if (y > o.y0 - 0.1 && y < o.y1 + 0.1) tm = s[0];
+    }
+    return tm;
+  }
+  function viewCamera(ctx, S, dt, V) {
+    const P = S.player, C = VIEWS[V.mode], cam = ctx.camera;
+    V.pitch = Math.max(C.pmin, Math.min(C.pmax, V.pitch));
+    if (cam.fov !== C.fov) { cam.fov = C.fov; cam.near = 0.08; cam.updateProjectionMatrix(); }
+    let px = P.x, pz = P.z, py = (P.y || 0);
+    if (P.mode === 'hidden' && P.hide && P.hide.seat) { px = P.hide.seat.x; pz = P.hide.seat.z; py = (P.hide.seat.y || 0) - 0.6; }
+    const ey = py + (P.mode === 'climb' ? 1.62 : EYE[P.stance] || 1.62);
+    V.eye = V.eye == null ? ey : V.eye + (ey - V.eye) * Math.min(1, dt * 8);
+    const sy = Math.sin(V.yaw), cy = Math.cos(V.yaw), cp = Math.cos(V.pitch), sp = Math.sin(V.pitch);
+    const fx = sy * cp, fz = cy * cp, fy = -sp, rx = -cy, rz = sy; // قدام · يمين
+    vPiv.set(px, V.eye, pz);
+    if (V.mode === 'fps') {
+      ctx.player.visible = false; ctx.viewHid = true;
+      vCam.set(px + sy * 0.12, V.eye, pz + cy * 0.12);
+    } else {
+      if (ctx.viewHid) { ctx.player.visible = true; ctx.viewHid = false; }
+      // المحور: فوق الكتف يمين شوي
+      const sx = px + rx * C.side, sz = pz + rz * C.side, syy = V.eye + C.up;
+      const tx = sx - fx * C.dist, ty = syy - fy * C.dist, tz = sz - fz * C.dist;
+      const k = Math.min(camHit(S.L, px, V.eye, pz, sx, syy, sz), 1), sxx = px + (sx - px) * k, szz = pz + (sz - pz) * k;
+      const h = camHit(S.L, sxx, syy, szz, tx, ty, tz), hh = Math.max(0.08, h * 0.92);
+      vCam.set(sxx + (tx - sxx) * hh, Math.max(0.25, syy + (ty - syy) * hh), szz + (tz - szz) * hh);
+      // الكاميرا قريبة مرة من الراس: نخفي ذيبان عشان ما يسد الشاشة
+      if (vCam.distanceTo(vPiv) < 0.55) { ctx.player.visible = false; ctx.viewHid = true; }
+      vPiv.set(sxx, syy, szz);
+    }
+    if (V.snap || !V.camPos) { V.camPos = vCam.clone(); V.snap = false; } else V.camPos.lerp(vCam, Math.min(1, dt * (V.mode === 'fps' ? 30 : 14)));
+    cam.position.copy(V.camPos);
+    if (ctx.shake > 0.001) { cam.position.x += (Math.random() - 0.5) * ctx.shake * 0.4; cam.position.y += (Math.random() - 0.5) * ctx.shake * 0.3; ctx.shake *= Math.pow(0.02, dt); }
+    vLook.set(cam.position.x + fx * 10, cam.position.y + fy * 10, cam.position.z + fz * 10);
+    cam.lookAt(vLook);
+    ctx.sky.moon.position.set(cam.position.x - 42, 46, cam.position.z - 70);
+    ctx.moon.position.set(P.x - 8, 20, P.z + 6); ctx.moon.target.position.set(P.x, 0, P.z); ctx.moon.target.updateMatrixWorld();
+    ctx.renderer.render(ctx.scene, cam);
+  }
 
   // ---------- موديل ذيبان (GLB) ----------
   // إذا الملف موجود يحل محل الجسم المؤقت. الحركات تتبدل حسب الوضعية والسرعة، بتداخل ناعم.

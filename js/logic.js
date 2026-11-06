@@ -743,6 +743,8 @@
       P.dir = Math.atan2(mx, mz);
       P.moving = sp; P.running = run;
     }
+    // منظور فوق الكتف والشخص الأول: ذيبان يطالع وين تطالع الكاميرا (يمشي جانبي)
+    if (inp.face != null && P.mode !== 'hidden') P.dir = inp.face;
     if (P.mode === 'top') { // فوق المنصة: يتحرك داخلها بس
       const pl = P.ladder.plat, m2 = 0.35;
       P.x = clamp(P.x, pl.x - pl.w / 2 + m2, pl.x + pl.w / 2 - m2); P.z = clamp(P.z, pl.z - pl.d / 2 + m2, pl.z + pl.d / 2 - m2);

@@ -337,3 +337,12 @@ test('نقاط الحفظ: بعيدة عن دوريات الحراس، ما تن
     assert.ok(T.playerReachable(L, L.start, c) || (() => { openGate(L); return T.playerReachable(L, L.start, c); })(), `نقطة (${c.x},${c.z}) ما يوصل لها`);
   }
 });
+
+test('المنظور القريب: ذيبان يطالع وين تطالع الكاميرا', () => {
+  const L = T.makeLevel(JSON.parse(JSON.stringify(require('../js/level1.js'))));
+  const S = T.newGame(L); S.guards = [];
+  T.update(S, { x: 1, z: 0, face: 2.5 }, 1 / 60);
+  assert.ok(Math.abs(S.player.dir - 2.5) < 1e-9, 'الوجه = اتجاه الكاميرا');
+  T.update(S, { x: 1, z: 0 }, 1 / 60);
+  assert.ok(Math.abs(S.player.dir - Math.PI / 2) < 1e-9, 'بدون face يطالع اتجاه المشي');
+});

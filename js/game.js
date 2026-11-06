@@ -217,7 +217,50 @@
   const endStick = e => { if (e.pointerId !== stickId) return; stickId = null; input.x = input.z = 0; knob.style.transform = ''; base.classList.remove('on'); homeStick(); };
   zone.addEventListener('pointerup', endStick); zone.addEventListener('pointercancel', endStick);
 
+  // ---------- المنظور: علوي · شخص ثالث · فوق الكتف · شخص أول ----------
+  // في المناظير القريبة: اسحب في يمين الشاشة عشان تلف، والعصا تمشي بالنسبة للكاميرا
+  const VIEW_ORDER = ['top', 'tps', 'ots', 'fps'], VIEW_NAMES = { top: 'علوي', tps: 'ثالث', ots: 'كتف', fps: 'أول' };
+  const view = { mode: 'top', yaw: Math.PI, pitch: 0.18, snap: true, dragT: 9 };
+  try { const m = localStorage.getItem('theeban.view'); if (VIEW_NAMES[m]) view.mode = m; } catch (e) { /* */ }
+  function setView(m) {
+    view.mode = m; view.snap = true; view.eye = null;
+    if (S) view.yaw = S.player.dir;
+    view.pitch = m === 'fps' ? 0.05 : m === 'ots' ? 0.12 : 0.28;
+    $('camTxt').textContent = VIEW_NAMES[m]; doc.body.classList.toggle('near-view', m !== 'top');
+    try { localStorage.setItem('theeban.view', m); } catch (e) { /* */ }
+  }
+  setView(view.mode);
+  const lookZ = $('lookZone'); let lookId = null, lx = 0, ly = 0;
+  lookZ.addEventListener('pointerdown', e => { if (lookId !== null || view.mode === 'top') return; lookId = e.pointerId; lookZ.setPointerCapture(e.pointerId); lx = e.clientX; ly = e.clientY; e.preventDefault(); });
+  lookZ.addEventListener('pointermove', e => {
+    if (e.pointerId !== lookId) return;
+    const s = view.mode === 'fps' ? 0.006 : 0.008;
+    view.yaw -= (e.clientX - lx) * s; view.pitch += (e.clientY - ly) * s * 0.8; lx = e.clientX; ly = e.clientY; view.dragT = 0;
+  });
+  const endLook = e => { if (e.pointerId === lookId) lookId = null; };
+  lookZ.addEventListener('pointerup', endLook); lookZ.addEventListener('pointercancel', endLook);
+  // الكمبيوتر: الماوس يلف وهو ضاغط، وV يبدّل المنظور
+  doc.addEventListener('keydown', e => { if (e.code === 'KeyV' && S) setView(VIEW_ORDER[(VIEW_ORDER.indexOf(view.mode) + 1) % 4]); });
+  // نحول العصا لاتجاه الكاميرا
+  function viewInput(inp) {
+    if (view.mode === 'top' || !S) return inp;
+    const y = view.yaw, ix = inp.x || 0, iz = inp.z || 0;
+    const out = { x: -Math.cos(y) * ix - Math.sin(y) * iz, z: Math.sin(y) * ix - Math.cos(y) * iz, run: inp.run };
+    if (view.mode !== 'tps' && S.player.mode === 'ground') out.face = y;
+    return out;
+  }
+  function viewTick(dt) {
+    view.dragT += dt;
+    // الشخص الثالث: إذا ما لفيت الكاميرا، ترجع ورا ذيبان بهدوء وهو يمشي
+    if (view.mode === 'tps' && S.player.moving && view.dragT > 1.2) {
+      let d = S.player.dir - view.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+      view.yaw += d * Math.min(1, dt * 1.2);
+    }
+    if (S.player.mode !== 'ground' && view.mode !== 'tps' && view.mode !== 'top' && S.player.mode !== 'hidden') view.yaw = S.player.dir;
+  }
+
   function press(el, fn) { el.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); audio(); fn(); }); }
+  press($('camBtn'), () => { if (!S) return; setView(VIEW_ORDER[(VIEW_ORDER.indexOf(view.mode) + 1) % 4]); tone(700, 0.05, 'triangle', 0.05); });
   press($('stance'), () => { if (S && S.status === 'play' && introT <= 0) { const before = S.player.stance; if (TH.cycleStance(S) === before) toast('ما تقدر', 0.8); } });
   press($('act'), () => { if (!S || introT > 0) return; TH.doAction(S); });
   press($('gas'), () => { if (!S || introT > 0) return; TH.useTool(S); });
@@ -249,7 +292,7 @@
     T_step(dt);
   }
   let introT = 0; const INTRO = 5.5;
-  function endIntro() { introT = 0; ctx.intro = 0; doc.body.classList.remove('intro'); doc.body.classList.remove('ui-off'); }
+  function endIntro() { introT = 0; ctx.intro = 0; view.snap = true; view.yaw = S.player.dir; doc.body.classList.remove('intro'); doc.body.classList.remove('ui-off'); }
   function T_step(dt) {
     if (introT > 0) {
       introT -= dt; ctx.intro = Math.max(0, introT / INTRO); S.time += dt; TH.advanceLights(S, dt);
@@ -257,7 +300,8 @@
       W.render(ctx, S, dt); return;
     }
     const k = keyInput();
-    TH.update(S, k || input, dt);
+    TH.update(S, viewInput(k || input), dt);
+    viewTick(dt);
     handleEvents(dt);
     updateHud(dt);
     let near = 99; for (const g of S.guards) if (g.state !== 'calm' && g.state !== 'out') near = Math.min(near, Math.hypot(g.x - S.player.x, g.z - S.player.z));
@@ -289,6 +333,7 @@
     S = TH.newGame(TH.makeLevel(deepClone(LEVELS[MISSION])));
     $('objTxt').textContent = TH.objectiveText(S);
     if (!ctx) ctx = W.build($('c'), S); else { W.syncGuards(ctx, S); W.snapCamera(ctx, S); }
+    ctx.view = view; view.snap = true; view.yaw = S.player.dir;
     startedAt = performance.now();
   }
 
