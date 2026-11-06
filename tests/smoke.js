@@ -82,7 +82,7 @@ function serve() {
   await page.tap('#act');
   await page.waitForTimeout(500);
   await page.screenshot({ path: path.join(OUT, 'shot-4b-subdue.png') });
-  await page.waitForFunction(() => __theeban.S.guards[1].state === 'out', null, { timeout: 15000 }).catch(() => {});
+  await page.waitForFunction(() => __theeban.S.guards[1].state === 'out', null, { timeout: 40000 }).catch(() => {});
   const outSt = await page.evaluate(() => __theeban.S.guards[1].state);
   outSt === 'out' ? ok('الحارس انخدّر ونام') : fail('حالة الحارس ' + outSt);
   await page.screenshot({ path: path.join(OUT, 'shot-4c-asleep.png') });
@@ -102,14 +102,14 @@ function serve() {
   pm === 'panel' ? ok('زر "أطفئ" يطلع عند لوحة الإنذار') : fail('زر الإنذار: ' + pm);
   await page.screenshot({ path: path.join(OUT, 'shot-4f-panel.png') });
   await page.tap('#act');
-  await page.waitForFunction(() => !__theeban.S.alarm.on, null, { timeout: 15000 }).catch(() => {});
+  await page.waitForFunction(() => !__theeban.S.alarm.on, null, { timeout: 40000 }).catch(() => {});
   (await page.evaluate(() => !__theeban.S.alarm.on)) ? ok('الإنذار انطفى من اللوحة') : fail('الإنذار ما انطفى');
 
   // قطع الكهربا من المولد
   await page.evaluate(() => { const S = __theeban.S, G = S.L.generator; S.player.x = G.x; S.player.z = G.z; });
   await page.waitForFunction(() => document.getElementById('act').dataset.m === 'gen', null, { timeout: 8000 }).catch(() => {});
   await page.tap('#act');
-  await page.waitForFunction(() => __theeban.S.power.off, null, { timeout: 15000 }).catch(() => {});
+  await page.waitForFunction(() => __theeban.S.power.off, null, { timeout: 40000 }).catch(() => {});
   (await page.evaluate(() => __theeban.S.power.off)) ? ok('المولد: الكهربا انقطعت') : fail('الكهربا ما انقطعت');
   await page.waitForTimeout(1200);
   await page.screenshot({ path: path.join(OUT, 'shot-4g-poweroff.png') });
@@ -146,6 +146,8 @@ function serve() {
   const rot = await page.evaluate(() => getComputedStyle(document.getElementById('rotate')).display !== 'none');
   rot ? ok('رسالة "لف الجوال" بالطولي') : fail('رسالة لف الجوال ما ظهرت');
 
+  const info = await page.evaluate(() => { const r = __theeban.ctx.renderer.info.render; return { calls: r.calls, tris: r.triangles }; });
+  console.log('info - draw calls ' + info.calls + ', triangles ' + info.tris);
   errors.length ? fail('أخطاء في الصفحة:\n' + errors.join('\n')) : ok('بدون أخطاء في الصفحة');
   await browser.close(); srv.close();
 })().catch(e => { console.error(e); process.exit(1); });

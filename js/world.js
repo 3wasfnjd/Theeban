@@ -486,7 +486,7 @@
   // ---------- موديل الحارس (GLB) ----------
   // ملف واحد لكل الحراس: نحمّله مرة ونفكّه لكل حارس (كل واحد له هيكله وحركاته). شارة على الذراع تفرّق النوع.
   const BAND = { scout: 0xf0c03a, heavy: 0xb03020, tech: 0xf4f4f0 };
-  const GUARD_ONCE = ['alert', 'spot', 'gassed', 'subdued'];
+  const GUARD_ONCE = ['alert', 'spot', 'gassed', 'subdued', 'wake'];
   // الكشاف بلبس صحراوي ونظارة (guard2)، والثقيل والفني باللبس الداكن (guard)
   const GUARD_FILE = { scout: 'guard2.glb', heavy: 'guard.glb', tech: 'guard.glb' };
   W.loadGuards = function (ctx) {
@@ -533,13 +533,15 @@
       else clip = A.cur;
       fade = 0.15;
     }
+    else if (A.waking && A.actions.wake && (A.cur !== 'wake' || A.actions.wake.isRunning())) { clip = 'wake'; fade = 0.3; }
     else if (g.state === 'alert') {
       if (A.prevState !== 'alert' && speed < 1) clip = 'alert';
       else clip = speed > 0.3 ? 'run' : (A.cur === 'alert' && A.actions.alert.isRunning() ? 'alert' : 'spot');
     }
-    else if (g.state === 'suspicious') clip = g.seen ? 'spot' : speed > 0.3 ? 'patrol_walk' : (S.alarm && S.alarm.on ? 'radio' : 'idle');
-    else clip = speed > 0.3 ? 'patrol_walk' : 'idle';
-    if (A.prevState === 'out' && g.state !== 'out') fade = 0.6; // يقوم من النوم
+    else if (g.state === 'suspicious') clip = g.seen ? 'spot' : speed > 0.3 ? 'patrol_walk' : (S.alarm && S.alarm.on && (g.id + Math.floor(S.time / 4)) % 2 ? 'radio' : 'look_around');
+    else clip = speed > 0.3 ? 'patrol_walk' : (g.waitT > 0 && g.route.length > 1 ? 'look_around' : 'idle');
+    if (A.prevState === 'out' && g.state !== 'out') { A.waking = true; clip = A.actions.wake ? 'wake' : clip; fade = 0.3; } // يقوم من النوم
+    if (clip !== 'wake') A.waking = false;
     A.prevState = held ? 'out' : g.state;
     if (!A.actions[clip]) clip = 'idle';
     if (clip === 'spot' && A.cur === 'spot' && !A.actions.spot.isRunning()) { /* يبقى على آخر وضعية */ }
